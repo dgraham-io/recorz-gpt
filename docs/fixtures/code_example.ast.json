@@ -1,0 +1,506 @@
+{
+  "body": {
+    "locals": [],
+    "primitive": null,
+    "statements": [
+      {
+        "assignments": [
+          "ProtoObject"
+        ],
+        "expression": {
+          "messages": [
+            {
+              "args": [],
+              "selector": "clone",
+              "type": "Message"
+            }
+          ],
+          "receiver": {
+            "name": "Object",
+            "type": "Reference"
+          },
+          "type": "MessageSendChain"
+        },
+        "is_return": false,
+        "type": "Statement"
+      },
+      {
+        "assignments": [
+          "PointProto"
+        ],
+        "expression": {
+          "messages": [
+            {
+              "args": [],
+              "selector": "clone",
+              "type": "Message"
+            }
+          ],
+          "receiver": {
+            "name": "ProtoObject",
+            "type": "Reference"
+          },
+          "type": "MessageSendChain"
+        },
+        "is_return": false,
+        "type": "Statement"
+      },
+      {
+        "assignments": [],
+        "expression": {
+          "messages": [
+            {
+              "args": [
+                {
+                  "type": "SymbolLiteral",
+                  "value": "x"
+                },
+                {
+                  "text": "0",
+                  "type": "IntegerLiteral"
+                }
+              ],
+              "selector": "addSlot:value:",
+              "type": "Message"
+            }
+          ],
+          "receiver": {
+            "name": "PointProto",
+            "type": "Reference"
+          },
+          "type": "MessageSendChain"
+        },
+        "is_return": false,
+        "type": "Statement"
+      },
+      {
+        "assignments": [],
+        "expression": {
+          "messages": [
+            {
+              "args": [
+                {
+                  "type": "SymbolLiteral",
+                  "value": "y"
+                },
+                {
+                  "text": "0",
+                  "type": "IntegerLiteral"
+                }
+              ],
+              "selector": "addSlot:value:",
+              "type": "Message"
+            }
+          ],
+          "receiver": {
+            "name": "PointProto",
+            "type": "Reference"
+          },
+          "type": "MessageSendChain"
+        },
+        "is_return": false,
+        "type": "Statement"
+      },
+      {
+        "assignments": [],
+        "expression": {
+          "messages": [
+            {
+              "args": [
+                {
+                  "type": "SymbolLiteral",
+                  "value": "color"
+                },
+                {
+                  "type": "StringLiteral",
+                  "value": "red"
+                }
+              ],
+              "selector": "addSlot:value:",
+              "type": "Message"
+            }
+          ],
+          "receiver": {
+            "name": "PointProto",
+            "type": "Reference"
+          },
+          "type": "MessageSendChain"
+        },
+        "is_return": false,
+        "type": "Statement"
+      },
+      {
+        "assignments": [],
+        "expression": {
+          "messages": [
+            {
+              "args": [
+                {
+                  "type": "SymbolLiteral",
+                  "value": "distanceToOrigin"
+                },
+                {
+                  "args": [],
+                  "body": {
+                    "locals": [],
+                    "primitive": null,
+                    "statements": [
+                      {
+                        "assignments": [],
+                        "expression": {
+                          "messages": [
+                            {
+                              "args": [],
+                              "selector": "sqrt",
+                              "type": "Message"
+                            }
+                          ],
+                          "receiver": {
+                            "statement": {
+                              "assignments": [],
+                              "expression": {
+                                "messages": [
+                                  {
+                                    "args": [
+                                      {
+                                        "statement": {
+                                          "assignments": [],
+                                          "expression": {
+                                            "messages": [
+                                              {
+                                                "args": [],
+                                                "selector": "y",
+                                                "type": "Message"
+                                              },
+                                              {
+                                                "args": [
+                                                  {
+                                                    "messages": [
+                                                      {
+                                                        "args": [],
+                                                        "selector": "y",
+                                                        "type": "Message"
+                                                      }
+                                                    ],
+                                                    "receiver": {
+                                                      "name": "self",
+                                                      "type": "Reference"
+                                                    },
+                                                    "type": "MessageSendChain"
+                                                  }
+                                                ],
+                                                "selector": "*",
+                                                "type": "Message"
+                                              }
+                                            ],
+                                            "receiver": {
+                                              "name": "self",
+                                              "type": "Reference"
+                                            },
+                                            "type": "MessageSendChain"
+                                          },
+                                          "is_return": false,
+                                          "type": "Statement"
+                                        },
+                                        "type": "NestedExpression"
+                                      }
+                                    ],
+                                    "selector": "+",
+                                    "type": "Message"
+                                  }
+                                ],
+                                "receiver": {
+                                  "statement": {
+                                    "assignments": [],
+                                    "expression": {
+                                      "messages": [
+                                        {
+                                          "args": [],
+                                          "selector": "x",
+                                          "type": "Message"
+                                        },
+                                        {
+                                          "args": [
+                                            {
+                                              "messages": [
+                                                {
+                                                  "args": [],
+                                                  "selector": "x",
+                                                  "type": "Message"
+                                                }
+                                              ],
+                                              "receiver": {
+                                                "name": "self",
+                                                "type": "Reference"
+                                              },
+                                              "type": "MessageSendChain"
+                                            }
+                                          ],
+                                          "selector": "*",
+                                          "type": "Message"
+                                        }
+                                      ],
+                                      "receiver": {
+                                        "name": "self",
+                                        "type": "Reference"
+                                      },
+                                      "type": "MessageSendChain"
+                                    },
+                                    "is_return": false,
+                                    "type": "Statement"
+                                  },
+                                  "type": "NestedExpression"
+                                },
+                                "type": "MessageSendChain"
+                              },
+                              "is_return": false,
+                              "type": "Statement"
+                            },
+                            "type": "NestedExpression"
+                          },
+                          "type": "MessageSendChain"
+                        },
+                        "is_return": false,
+                        "type": "Statement"
+                      }
+                    ],
+                    "type": "ExecutableCode"
+                  },
+                  "type": "BlockLiteral"
+                }
+              ],
+              "selector": "addMethod:do:",
+              "type": "Message"
+            }
+          ],
+          "receiver": {
+            "name": "PointProto",
+            "type": "Reference"
+          },
+          "type": "MessageSendChain"
+        },
+        "is_return": false,
+        "type": "Statement"
+      },
+      {
+        "assignments": [
+          "p"
+        ],
+        "expression": {
+          "messages": [
+            {
+              "args": [],
+              "selector": "clone",
+              "type": "Message"
+            }
+          ],
+          "receiver": {
+            "name": "PointProto",
+            "type": "Reference"
+          },
+          "type": "MessageSendChain"
+        },
+        "is_return": false,
+        "type": "Statement"
+      },
+      {
+        "assignments": [],
+        "expression": {
+          "chains": [
+            [
+              {
+                "args": [
+                  {
+                    "text": "3",
+                    "type": "IntegerLiteral"
+                  }
+                ],
+                "selector": "x:",
+                "type": "Message"
+              }
+            ],
+            [
+              {
+                "args": [
+                  {
+                    "text": "4",
+                    "type": "IntegerLiteral"
+                  }
+                ],
+                "selector": "y:",
+                "type": "Message"
+              }
+            ]
+          ],
+          "receiver": {
+            "name": "p",
+            "type": "Reference"
+          },
+          "type": "Cascade"
+        },
+        "is_return": false,
+        "type": "Statement"
+      },
+      {
+        "assignments": [],
+        "expression": {
+          "messages": [
+            {
+              "args": [],
+              "selector": "distanceToOrigin",
+              "type": "Message"
+            },
+            {
+              "args": [],
+              "selector": "print",
+              "type": "Message"
+            }
+          ],
+          "receiver": {
+            "name": "p",
+            "type": "Reference"
+          },
+          "type": "MessageSendChain"
+        },
+        "is_return": false,
+        "type": "Statement"
+      },
+      {
+        "assignments": [
+          "MemoryProto"
+        ],
+        "expression": {
+          "messages": [
+            {
+              "args": [],
+              "selector": "clone",
+              "type": "Message"
+            }
+          ],
+          "receiver": {
+            "name": "ProtoObject",
+            "type": "Reference"
+          },
+          "type": "MessageSendChain"
+        },
+        "is_return": false,
+        "type": "Statement"
+      },
+      {
+        "assignments": [],
+        "expression": {
+          "messages": [
+            {
+              "args": [
+                {
+                  "type": "SymbolLiteral",
+                  "value": "byteAt:"
+                },
+                {
+                  "args": [
+                    "address"
+                  ],
+                  "body": {
+                    "locals": [],
+                    "primitive": 10,
+                    "statements": [
+                      {
+                        "assignments": [],
+                        "expression": {
+                          "messages": [
+                            {
+                              "args": [],
+                              "selector": "primitiveFailed",
+                              "type": "Message"
+                            }
+                          ],
+                          "receiver": {
+                            "name": "self",
+                            "type": "Reference"
+                          },
+                          "type": "MessageSendChain"
+                        },
+                        "is_return": true,
+                        "type": "Statement"
+                      }
+                    ],
+                    "type": "ExecutableCode"
+                  },
+                  "type": "BlockLiteral"
+                }
+              ],
+              "selector": "addMethod:do:",
+              "type": "Message"
+            }
+          ],
+          "receiver": {
+            "name": "MemoryProto",
+            "type": "Reference"
+          },
+          "type": "MessageSendChain"
+        },
+        "is_return": false,
+        "type": "Statement"
+      },
+      {
+        "assignments": [],
+        "expression": {
+          "messages": [
+            {
+              "args": [
+                {
+                  "type": "SymbolLiteral",
+                  "value": "byteAt:put:"
+                },
+                {
+                  "args": [
+                    "address",
+                    "value"
+                  ],
+                  "body": {
+                    "locals": [],
+                    "primitive": 11,
+                    "statements": [
+                      {
+                        "assignments": [],
+                        "expression": {
+                          "messages": [
+                            {
+                              "args": [],
+                              "selector": "primitiveFailed",
+                              "type": "Message"
+                            }
+                          ],
+                          "receiver": {
+                            "name": "self",
+                            "type": "Reference"
+                          },
+                          "type": "MessageSendChain"
+                        },
+                        "is_return": true,
+                        "type": "Statement"
+                      }
+                    ],
+                    "type": "ExecutableCode"
+                  },
+                  "type": "BlockLiteral"
+                }
+              ],
+              "selector": "addMethod:do:",
+              "type": "Message"
+            }
+          ],
+          "receiver": {
+            "name": "MemoryProto",
+            "type": "Reference"
+          },
+          "type": "MessageSendChain"
+        },
+        "is_return": false,
+        "type": "Statement"
+      }
+    ],
+    "type": "ExecutableCode"
+  },
+  "type": "Program"
+}
