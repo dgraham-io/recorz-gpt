@@ -1,0 +1,7 @@
+o := Object clone.
+o addSlot: #v value: 10.
+img := Object saveImage.
+o addSlot: #v value: 99.
+(o slotNamed: #v) print.
+Object loadImage: img.
+(o slotNamed: #v) print.

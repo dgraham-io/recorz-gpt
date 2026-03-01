@@ -26,13 +26,18 @@
   - prototype-chain method lookup for integer and object sends
   - bootstrap `Object` global with slot-object protocol primitives (`clone`, `addSlot:value:`, `slotNamed:`)
   - payload-backed protocols (`size`, `at:`, `at:put:`) for byte arrays, strings, and object arrays
-  - block activation stubs (`value`, `value:`)
+  - executable block activation (`value`, `value:`) and dynamic method block execution for arbitrary send arity using compact `RBLK` payloads with block-local slots, bootstrap captured/global refs, nested lexical arg/local capture envs, and non-local return unwind
   - unary `print`
   - binary integer arithmetic (`+`, `-`, `*`, `/`)
   - primitive failure fallback through `primitiveFailed`
+  - in-VM image snapshot/restore primitives (`saveImage`, `loadImage:`)
+  - serial host bridge primitives for image transfer (`exportImage:`, `importImage`) with checksum framing plus language-level convenience wrappers (`saveImageToHost`, `loadImageFromHost`)
+  - VM-owned symbol/block literal storage so persisted objects do not depend on transient program-blob pointers
+  - linker layout that places `recorz_program_blob` after VM state sections to keep heap/root addresses stable across program rebuilds
 
 ## Next VM milestones
 
 - Extend bytecode execution from subset to full hosted instruction set.
 - Implement object memory model and root set.
 - Integrate primitive ABI with message send/return and fallback conventions.
+- Add durable host persistence backend(s) (file/virtio) and image integrity/version negotiation on top of the serial bridge.

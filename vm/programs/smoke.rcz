@@ -8,6 +8,27 @@ m addMethod: #id do: [ self ].
 ((m id) slotNamed: #answer) print.
 m addMethod: #echo: do: [ :v | v ].
 (m echo: 12) print.
+m addMethod: #sum:with: do: [ :a :b | a + b ].
+(m sum: 4 with: 7) print.
+m addMethod: #sum:with:and: do: [ :a :b :c | (a + b) + c ].
+(m sum: 1 with: 2 and: 3) print.
+m addMethod: #sumSelf do: [ self sum: 10 with: 20 and: 30 ].
+(m sumSelf) print.
+m addMethod: #localInc: do: [ :x | | t | t := x + 1. t ].
+(m localInc: 18) print.
+m addMethod: #makeCounter: do: [ :x | [ x := x + 1. x ] ].
+counter := m makeCounter: 9.
+(counter value) print.
+(counter value) print.
+m addMethod: #makeCounters: do: [ :x | c1 := [ x := x + 1. x ]. c2 := [ x := x + 10. x ]. c2 ].
+c2 := m makeCounters: 200.
+(c1 value) print.
+(c2 value) print.
+(c1 value) print.
+m addMethod: #bumpLocal do: [ | t c | t := 500. c := [ t := t + 2. t ]. c value. t ].
+(m bumpLocal) print.
+m addMethod: #primFallback do: [ <primitive: 10> ^ 444 ].
+(m primFallback) print.
 
 label := 'ok'.
 floatLiteral := 1e+3.

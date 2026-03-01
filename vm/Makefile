@@ -8,7 +8,7 @@ GENERATED_DIR := generated
 ELF := $(BUILD_DIR)/recorz.elf
 BIN := $(BUILD_DIR)/recorz.bin
 PROGRAM_SRC := programs/smoke.rcz
-PROGRAM_BC := $(GENERATED_DIR)/smoke.bc
+PROGRAM_BC := $(GENERATED_DIR)/program.bc
 
 SRCS := src/start.S src/vm.S src/program.S
 

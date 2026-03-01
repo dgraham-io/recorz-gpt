@@ -18,7 +18,7 @@ Slot category is a protocol-level convention; runtime stores generic entries.
 
 1. Look for selector in receiver slots.
 2. If missing, follow parent link and repeat.
-3. If chain ends, send `doesNotUnderstand:` to original receiver.
+3. If chain ends, send `doesNotUnderstand:argc:` to original receiver (bootstrap form).
 
 ## `self` and `super`
 
@@ -41,6 +41,7 @@ Activation record contains:
 - Block closes over lexical variables and `self`.
 - `^expr` in a block returns from the home method activation (Smalltalk semantics).
 - If home activation is no longer valid, raise `CannotReturn`.
+- Bootstrap protocol supports `value onCannotReturn: [ :err | ... ]` where non-`CannotReturn` values pass through and `CannotReturn` invokes the handler block.
 
 ## Cascades
 

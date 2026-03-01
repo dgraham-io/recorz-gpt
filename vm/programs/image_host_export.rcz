@@ -1,0 +1,6 @@
+o := Object clone.
+o addSlot: #v value: 10.
+Object addSlot: #persisted value: o.
+Object addMethod: #showValue do: [ ((Object slotNamed: #persisted) slotNamed: #v) print ].
+Object saveImageToHost.
+o addSlot: #v value: 99.

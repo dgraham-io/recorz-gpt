@@ -21,6 +21,22 @@ Expected UART output includes:
 - `recorz primitives ready`
 - `recorz interpreter loop`
 - `123`
+- `77`
+- `12`
+- `11`
+- `6`
+- `60`
+- `19`
+- `10`
+- `201`
+- `211`
+- `212`
+- `502`
+- `111`
+- `255`
+- `9`
+- `3`
+- `8`
 - `42`
 - `38`
 - `80`
@@ -51,9 +67,19 @@ Expected UART output includes:
 - `43`: object-array `size`
 - `44`: object-array `at:`
 - `45`: object-array `at:put:`
-- `46`: block `value` (stub)
-- `47`: block `value:` (stub)
-- `3..9`, `15..19`, `21..23`, `29..30`, `32..39`, `48..255`: unimplemented (`-1` failure)
+- `46`: block `value`
+- `47`: block `value:`
+- `48`: `CannotReturn` print primitive
+- `49`: default `onCannotReturn:` pass-through
+- `50`: `CannotReturn` `onCannotReturn:` handler dispatch
+- `51`: `doesNotUnderstand:argc:` debug fallback
+- `128`: `saveImage` (snapshot state to image byte array)
+- `129`: `loadImage:` (restore state from image byte array)
+- `130`: `exportImage:` (emit image bytes over UART as `RCIMG <len> <sum32hex>\\n<hex>`)
+- `131`: `importImage` (read UART bridge payload, verify `sum32`, return byte array)
+- `132`: `saveImageToHost` (snapshot + bridge export)
+- `133`: `loadImageFromHost` (bridge import + restore)
+- `3..9`, `15..19`, `21..23`, `29..30`, `32..39`, `52..127`, `134..255`: unimplemented (`-1` failure)
 
 This table establishes a stable dispatch mechanism for the `<primitive: N>` language contract while behavior is filled in incrementally.
 
@@ -61,5 +87,7 @@ This table establishes a stable dispatch mechanism for the `<primitive: N>` lang
 
 - VM now executes RCBC v2 bytecode generated from `vm/programs/smoke.rcz`.
 - `SEND` resolves selectors via a prototype delegation chain (bootstrap prototypes: `ProtoObject` and `IntegerProto`) and executes method behavior through primitive dispatch.
-- Current interpreter supports integer/symbol/string/float/scaled-decimal/block/object-array/byte-array constants, `LOAD_REF`/`STORE_REF`, unary `print`, binary arithmetic sends (`+`, `-`, `*`, `/`), payload collection protocol primitives (`size`, `at:`, `at:put:`), block activation stubs (`value`, `value:`), object slot protocol primitives (`clone`, `addSlot:value:`, `slotNamed:`), and primitive fallback to `primitiveFailed`.
+- Current interpreter supports integer/symbol/string/float/scaled-decimal/block/object-array/byte-array constants, `LOAD_REF`/`STORE_REF`, unary `print`, binary arithmetic sends (`+`, `-`, `*`, `/`), payload collection protocol primitives (`size`, `at:`, `at:put:`), executable block activation (`value`, `value:`) and dynamic method block execution across send arities (including multi-keyword selectors) with bootstrap captured/global refs, nested block constants, shared activation closure env capture for sibling closures, block-local slots (`PUSH_LOCAL`, `STORE_LOCAL`), captured arg/local mutation via block `STORE_REF`, block non-local return unwind via `RETURN` plus home-activation validity checks (escaped return recovers to a first-class runtime `CannotReturn` object with `onCannotReturn:` handling), object slot protocol primitives (`clone`, `addSlot:value:`, `slotNamed:`), message-miss fallback via `doesNotUnderstand:argc:` with serial debug selector/arity output (including sends executed inside method/closure block evaluation), in-VM image snapshot/restore primitives (`saveImage`, `loadImage:`), and host-bridge convenience primitives (`saveImageToHost`, `loadImageFromHost`).
+- Image snapshot format is `RCIM` v2 and now includes VM-owned symbol/block literal storage plus root-object state, enabling serial export/import roundtrips across separate export/import program builds.
+- `recorz_program_blob` now links in a dedicated `.program` section after VM state sections so heap/root addresses remain stable even when bytecode size changes.
 - Remaining message semantics and object model integration are upcoming milestones.

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import struct
 from dataclasses import dataclass, field
 
@@ -45,6 +44,27 @@ VM_OP_SEND = 4
 VM_OP_RETURN = 5
 VM_OP_LOAD_REF = 6
 VM_OP_STORE_REF = 7
+
+BLOCK_MAGIC = b"RBLK"
+BLOCK_VERSION = 3
+
+BLOCK_CONST_INT = 0
+BLOCK_CONST_SYMBOL = 1
+BLOCK_CONST_STRING = 2
+BLOCK_CONST_BLOCK = 3
+
+BLOCK_OP_END = 0
+BLOCK_OP_PUSH_SELF = 1
+BLOCK_OP_PUSH_ARG = 2
+BLOCK_OP_PUSH_CONST = 3
+BLOCK_OP_SEND = 4
+BLOCK_OP_DUP = 5
+BLOCK_OP_POP = 6
+BLOCK_OP_PUSH_REF = 7
+BLOCK_OP_STORE_REF = 8
+BLOCK_OP_PUSH_LOCAL = 9
+BLOCK_OP_STORE_LOCAL = 10
+BLOCK_OP_RETURN = 11
 
 
 class Encoder:
@@ -104,16 +124,12 @@ class Encoder:
             self.emit("LOAD_CONST", self.add_constant([int(v) for v in expr.elements]))
             return
         if isinstance(expr, ast.BlockLiteral):
-            nested = Encoder()
-            nested.encode_executable(expr.body)
+            payload = self._encode_block_payload(expr)
             self.emit(
                 "LOAD_CONST",
                 self.add_constant(
                     {
-                        "block": {
-                            "args": expr.args,
-                            "chunk": nested.chunk.to_dict(),
-                        }
+                        "block_ir": payload,
                     }
                 ),
             )
@@ -174,6 +190,315 @@ class Encoder:
                 self.encode_expression(arg)
             self.emit("SEND", self.add_selector(message.selector), len(message.args))
 
+    def _encode_block_payload(self, expr: ast.BlockLiteral) -> bytes:
+        if len(expr.args) > 255:
+            raise EncodeError("Block supports at most 255 arguments")
+        if len(expr.body.locals) > 255:
+            raise EncodeError("Block supports at most 255 locals")
+        primitive_id = 255
+        if expr.body.primitive is not None:
+            if expr.body.primitive < 0 or expr.body.primitive > 255:
+                raise EncodeError("Block primitive declaration must be in range 0..255")
+            primitive_id = expr.body.primitive
+
+        arg_indexes: dict[str, int] = {}
+        arg_ref_indexes: list[int] = []
+        for index, name in enumerate(expr.args):
+            if name == "self":
+                raise EncodeError("Block argument name 'self' is reserved")
+            if name in arg_indexes:
+                raise EncodeError(f"Duplicate block argument name: {name!r}")
+            arg_indexes[name] = index
+            arg_ref_indexes.append(self.add_symbol(name))
+        local_indexes: dict[str, int] = {}
+        local_ref_indexes: list[int] = []
+        for index, name in enumerate(expr.body.locals):
+            if name in local_indexes:
+                raise EncodeError(f"Duplicate block local name: {name!r}")
+            if name in arg_indexes:
+                raise EncodeError(f"Block local shadows argument name: {name!r}")
+            local_indexes[name] = index
+            local_ref_indexes.append(self.add_symbol(name))
+
+        constants: list[object] = []
+        constant_indexes: dict[tuple[str, object], int] = {}
+        selectors: list[str] = []
+        selector_indexes: dict[str, int] = {}
+        instructions: list[tuple[int, int, int]] = []
+
+        for idx, statement in enumerate(expr.body.statements):
+            self._encode_block_expression(
+                statement.expression,
+                arg_indexes,
+                local_indexes,
+                constants,
+                constant_indexes,
+                selectors,
+                selector_indexes,
+                instructions,
+            )
+            for name in reversed(statement.assignments):
+                instructions.append((BLOCK_OP_DUP, 0, 0))
+                local_index = local_indexes.get(name)
+                if local_index is not None:
+                    instructions.append((BLOCK_OP_STORE_LOCAL, local_index, 0))
+                else:
+                    instructions.append((BLOCK_OP_STORE_REF, self.add_symbol(name), 0))
+            if statement.is_return:
+                instructions.append((BLOCK_OP_RETURN, 0, 0))
+                break
+            if idx != len(expr.body.statements) - 1:
+                instructions.append((BLOCK_OP_POP, 0, 0))
+
+        instructions.append((BLOCK_OP_END, 0, 0))
+
+        if len(constants) > 255:
+            raise EncodeError("Block supports at most 255 constants")
+        if len(selectors) > 255:
+            raise EncodeError("Block supports at most 255 selectors")
+        if len(instructions) > 255:
+            raise EncodeError("Block supports at most 255 instructions")
+
+        payload = bytearray()
+        payload.extend(BLOCK_MAGIC)
+        payload.append(BLOCK_VERSION)
+        payload.append(primitive_id)
+        payload.append(len(expr.args))
+        payload.append(len(arg_ref_indexes))
+        payload.extend(arg_ref_indexes)
+        payload.append(len(local_indexes))
+        payload.append(len(local_ref_indexes))
+        payload.extend(local_ref_indexes)
+        payload.append(len(constants))
+        for value in constants:
+            if isinstance(value, int):
+                payload.append(BLOCK_CONST_INT)
+                payload.extend(int(value).to_bytes(8, byteorder="little", signed=True))
+                continue
+            if isinstance(value, dict) and set(value.keys()) == {"symbol"} and isinstance(value["symbol"], str):
+                symbol_bytes = value["symbol"].encode("ascii", errors="strict")
+                if len(symbol_bytes) > 255:
+                    raise EncodeError("Block symbol constant too long for VM block payload")
+                payload.append(BLOCK_CONST_SYMBOL)
+                payload.append(len(symbol_bytes))
+                payload.extend(symbol_bytes)
+                continue
+            if isinstance(value, str):
+                string_bytes = value.encode("utf-8", errors="strict")
+                if len(string_bytes) > 255:
+                    raise EncodeError("Block string constant too long for VM block payload")
+                payload.append(BLOCK_CONST_STRING)
+                payload.append(len(string_bytes))
+                payload.extend(string_bytes)
+                continue
+            if (
+                isinstance(value, dict)
+                and set(value.keys()) == {"block_ir"}
+                and isinstance(value["block_ir"], (bytes, bytearray))
+            ):
+                nested_block_bytes = bytes(value["block_ir"])
+                if len(nested_block_bytes) > 65535:
+                    raise EncodeError("Nested block constant too long for VM block payload")
+                payload.append(BLOCK_CONST_BLOCK)
+                payload.extend(len(nested_block_bytes).to_bytes(2, byteorder="little", signed=False))
+                payload.extend(nested_block_bytes)
+                continue
+            raise EncodeError(f"Unsupported block constant type for VM payload: {value!r}")
+        payload.append(len(selectors))
+        for selector in selectors:
+            selector_bytes = selector.encode("ascii", errors="strict")
+            if len(selector_bytes) > 255:
+                raise EncodeError("Block selector too long for VM block payload")
+            payload.append(len(selector_bytes))
+            payload.extend(selector_bytes)
+        payload.append(len(instructions))
+        for op, op1, op2 in instructions:
+            payload.extend([op, op1, op2])
+        return bytes(payload)
+
+    def _encode_block_expression(
+        self,
+        expr: ast.Expression,
+        arg_indexes: dict[str, int],
+        local_indexes: dict[str, int],
+        constants: list[object],
+        constant_indexes: dict[tuple[str, object], int],
+        selectors: list[str],
+        selector_indexes: dict[str, int],
+        instructions: list[tuple[int, int, int]],
+    ) -> None:
+        if isinstance(expr, ast.Reference):
+            if expr.name == "self":
+                instructions.append((BLOCK_OP_PUSH_SELF, 0, 0))
+                return
+            local_index = local_indexes.get(expr.name)
+            if local_index is not None:
+                instructions.append((BLOCK_OP_PUSH_LOCAL, local_index, 0))
+                return
+            arg_index = arg_indexes.get(expr.name)
+            if arg_index is not None:
+                instructions.append((BLOCK_OP_PUSH_ARG, arg_index, 0))
+                return
+            # Bootstrap closure semantics: treat non-argument references as captured refs
+            # through the shared selector/global binding pool.
+            ref_index = self.add_symbol(expr.name)
+            instructions.append((BLOCK_OP_PUSH_REF, ref_index, 0))
+            return
+        if isinstance(expr, ast.IntegerLiteral):
+            value = int(expr.text)
+            const_key = ("int", value)
+            const_index = constant_indexes.get(const_key)
+            if const_index is None:
+                if len(constants) >= 255:
+                    raise EncodeError("Block supports at most 255 constants")
+                constants.append(value)
+                const_index = len(constants) - 1
+                constant_indexes[const_key] = const_index
+            instructions.append((BLOCK_OP_PUSH_CONST, const_index, 0))
+            return
+        if isinstance(expr, ast.SymbolLiteral):
+            const_value = {"symbol": expr.value}
+            const_key = ("symbol", expr.value)
+            const_index = constant_indexes.get(const_key)
+            if const_index is None:
+                if len(constants) >= 255:
+                    raise EncodeError("Block supports at most 255 constants")
+                constants.append(const_value)
+                const_index = len(constants) - 1
+                constant_indexes[const_key] = const_index
+            instructions.append((BLOCK_OP_PUSH_CONST, const_index, 0))
+            return
+        if isinstance(expr, ast.StringLiteral):
+            const_key = ("string", expr.value)
+            const_index = constant_indexes.get(const_key)
+            if const_index is None:
+                if len(constants) >= 255:
+                    raise EncodeError("Block supports at most 255 constants")
+                constants.append(expr.value)
+                const_index = len(constants) - 1
+                constant_indexes[const_key] = const_index
+            instructions.append((BLOCK_OP_PUSH_CONST, const_index, 0))
+            return
+        if isinstance(expr, ast.BlockLiteral):
+            nested_payload = self._encode_block_payload(expr)
+            const_value = {"block_ir": nested_payload}
+            const_key = ("block", nested_payload)
+            const_index = constant_indexes.get(const_key)
+            if const_index is None:
+                if len(constants) >= 255:
+                    raise EncodeError("Block supports at most 255 constants")
+                constants.append(const_value)
+                const_index = len(constants) - 1
+                constant_indexes[const_key] = const_index
+            instructions.append((BLOCK_OP_PUSH_CONST, const_index, 0))
+            return
+        if isinstance(expr, ast.MessageSendChain):
+            self._encode_block_expression(
+                expr.receiver,
+                arg_indexes,
+                local_indexes,
+                constants,
+                constant_indexes,
+                selectors,
+                selector_indexes,
+                instructions,
+            )
+            for message in expr.messages:
+                for argument in message.args:
+                    self._encode_block_expression(
+                        argument,
+                        arg_indexes,
+                        local_indexes,
+                        constants,
+                        constant_indexes,
+                        selectors,
+                        selector_indexes,
+                        instructions,
+                    )
+                selector_index = selector_indexes.get(message.selector)
+                if selector_index is None:
+                    if len(selectors) >= 255:
+                        raise EncodeError("Block supports at most 255 selectors")
+                    selectors.append(message.selector)
+                    selector_index = len(selectors) - 1
+                    selector_indexes[message.selector] = selector_index
+                instructions.append((BLOCK_OP_SEND, selector_index, len(message.args)))
+            return
+        if isinstance(expr, ast.NestedExpression):
+            if expr.statement.assignments:
+                raise EncodeError("Nested block expressions with assignments are not supported")
+            if expr.statement.is_return:
+                raise EncodeError("Nested block expressions with return are not supported")
+            self._encode_block_expression(
+                expr.statement.expression,
+                arg_indexes,
+                local_indexes,
+                constants,
+                constant_indexes,
+                selectors,
+                selector_indexes,
+                instructions,
+            )
+            return
+        if isinstance(expr, ast.Cascade):
+            self._encode_block_expression(
+                expr.receiver,
+                arg_indexes,
+                local_indexes,
+                constants,
+                constant_indexes,
+                selectors,
+                selector_indexes,
+                instructions,
+            )
+            if not expr.chains:
+                return
+            for chain in expr.chains[:-1]:
+                instructions.append((BLOCK_OP_DUP, 0, 0))
+                for message in chain:
+                    for argument in message.args:
+                        self._encode_block_expression(
+                            argument,
+                            arg_indexes,
+                            local_indexes,
+                            constants,
+                            constant_indexes,
+                            selectors,
+                            selector_indexes,
+                            instructions,
+                        )
+                    selector_index = selector_indexes.get(message.selector)
+                    if selector_index is None:
+                        if len(selectors) >= 255:
+                            raise EncodeError("Block supports at most 255 selectors")
+                        selectors.append(message.selector)
+                        selector_index = len(selectors) - 1
+                        selector_indexes[message.selector] = selector_index
+                    instructions.append((BLOCK_OP_SEND, selector_index, len(message.args)))
+                instructions.append((BLOCK_OP_POP, 0, 0))
+            for message in expr.chains[-1]:
+                for argument in message.args:
+                    self._encode_block_expression(
+                        argument,
+                        arg_indexes,
+                        local_indexes,
+                        constants,
+                        constant_indexes,
+                        selectors,
+                        selector_indexes,
+                        instructions,
+                    )
+                selector_index = selector_indexes.get(message.selector)
+                if selector_index is None:
+                    if len(selectors) >= 255:
+                        raise EncodeError("Block supports at most 255 selectors")
+                    selectors.append(message.selector)
+                    selector_index = len(selectors) - 1
+                    selector_indexes[message.selector] = selector_index
+                instructions.append((BLOCK_OP_SEND, selector_index, len(message.args)))
+            return
+        raise EncodeError(f"Unsupported block expression type for VM payload: {type(expr).__name__}")
+
     def add_constant(self, value: object) -> int:
         self.chunk.constants.append(value)
         return len(self.chunk.constants) - 1
@@ -219,7 +544,7 @@ def serialize_vm_binary(chunk: BytecodeChunk) -> bytes:
       - kind:u8 == 2 (string), payload len:u8 + utf-8 bytes
       - kind:u8 == 3 (float), payload IEEE754 float64 little-endian
       - kind:u8 == 4 (scaled_decimal), payload len:u8 + ascii bytes
-      - kind:u8 == 5 (block), payload len:u16 + utf-8 JSON bytes
+      - kind:u8 == 5 (block), payload len:u16 + executable RBLK bytes
       - kind:u8 == 6 (object_array), payload len:u16 + [count:u8, const_index:u8 * count]
       - kind:u8 == 7 (byte_array), payload len:u16 + raw bytes
     - selectors: (len:u8, ascii bytes)
@@ -287,8 +612,12 @@ def serialize_vm_binary(chunk: BytecodeChunk) -> bytes:
             encoded.extend(scaled_bytes)
             continue
 
-        if isinstance(value, dict) and set(value.keys()) == {"block"}:
-            block_bytes = json.dumps(value["block"], sort_keys=True, separators=(",", ":")).encode("utf-8", errors="strict")
+        if (
+            isinstance(value, dict)
+            and set(value.keys()) == {"block_ir"}
+            and isinstance(value["block_ir"], (bytes, bytearray))
+        ):
+            block_bytes = bytes(value["block_ir"])
             _append_len_u16_constant(encoded, VM_CONST_BLOCK, block_bytes, "Block constant")
             continue
 

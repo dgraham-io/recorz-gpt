@@ -1,0 +1,6 @@
+m := Object clone.
+m addMethod: #escapeMaker do: [ [ ^701 ] ].
+esc := m escapeMaker.
+raw := esc value.
+(raw onCannotReturn: [ :err | err print. 701 ]) print.
+(123 onCannotReturn: [ :err | 5 ]) print.

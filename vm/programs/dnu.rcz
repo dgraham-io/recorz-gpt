@@ -1,0 +1,8 @@
+o := Object clone.
+o missing.
+o missing: 7.
+o missing: 1 with: 2.
+m := Object clone.
+m addMethod: #triggerDnu do: [ self nope: 1 ].
+m triggerDnu.
+123 print.

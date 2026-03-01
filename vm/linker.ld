@@ -32,4 +32,9 @@ SECTIONS {
   __stack_bottom = .;
   . = . + 16K;
   __stack_top = .;
+
+  . = ALIGN(16);
+  .program : {
+    KEEP(*(.program*))
+  } > RAM
 }

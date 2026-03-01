@@ -35,7 +35,7 @@ Binary layout:
   - `kind:u8 = 2` -> string payload `(len:u8, utf-8 bytes)`
   - `kind:u8 = 3` -> float payload `(IEEE754 float64, little-endian)`
   - `kind:u8 = 4` -> scaled-decimal payload `(len:u8, ascii bytes)`
-  - `kind:u8 = 5` -> block payload `(len:u16, utf-8 JSON bytes)`
+  - `kind:u8 = 5` -> block payload `(len:u16, executable RBLK bytes)`
   - `kind:u8 = 6` -> object-array payload `(len:u16, [count:u8, const_index:u8 * count])`
   - `kind:u8 = 7` -> byte-array payload `(len:u16, raw bytes)`
 - selectors: repeated `(len:u8, ascii bytes)`
@@ -44,6 +44,41 @@ Binary layout:
   - `op1:u8`
   - `op2:u8`
   - `op3:u8` (reserved)
+
+Block payload (`RBLK` v3) layout:
+- `magic[4]`: ASCII `RBLK`
+- `version[1]`: `3`
+- `primitive_id[1]`: primitive declaration (`0..255`), where `255` means no declared primitive
+- `arg_count[1]`
+- `arg_ref_count[1]` (currently equals `arg_count`)
+- `arg_refs[arg_ref_count]`: selector-pool indices used for lexical arg-name capture
+- `local_count[1]`
+- `local_ref_count[1]` (currently equals `local_count`)
+- `local_refs[local_ref_count]`: selector-pool indices used for lexical local-name capture
+- `constant_count[1]`
+- `constants[constant_count]`: typed entries:
+  - `kind:u8 = 0` -> signed little-endian `int64`
+  - `kind:u8 = 1` -> symbol payload `(len:u8, ascii bytes)`
+  - `kind:u8 = 2` -> string payload `(len:u8, utf-8 bytes)`
+  - `kind:u8 = 3` -> nested block payload `(len:u16, nested RBLK bytes)`
+- `selector_count[1]`
+- selectors: repeated `(len:u8, ascii bytes)`
+- `instruction_count[1]`
+- instructions: `instruction_count` entries, each 3 bytes `[op, op1, op2]`
+
+RBLK opcodes:
+- `0`: `END`
+- `1`: `PUSH_SELF`
+- `2`: `PUSH_ARG`
+- `3`: `PUSH_CONST`
+- `4`: `SEND`
+- `5`: `DUP`
+- `6`: `POP`
+- `7`: `PUSH_REF` (bootstrap captured/global reference slot)
+- `8`: `STORE_REF` (bootstrap captured/global reference assignment slot)
+- `9`: `PUSH_LOCAL` (block-local slot load)
+- `10`: `STORE_LOCAL` (block-local slot store)
+- `11`: `RETURN` (non-local return unwind with top-of-stack return value)
 
 VM opcodes:
 - `0`: `HALT`
@@ -67,7 +102,8 @@ The bootstrap interpreter currently supports:
 - object-array constants (heap object-array objects materialized from referenced constants)
 - byte-array constants (heap byte-array objects with payload pointer + length)
 - payload-backed protocol primitives for `size`, `at:`, and `at:put:` (strings/byte arrays/object arrays)
-- block activation stubs for `value` / `value:`
+- executable block activation for `value` / `value:` and dynamic method block execution (lexical `self`, indexed block arguments, indexed block locals, int/symbol/string/nested-block constants, captured/global refs, `STORE_REF`/`STORE_LOCAL` assignment, sends, block `RETURN` unwind)
+- method/block primitive declaration execution (`<primitive: N>`) with fallback-to-body semantics on primitive failure
 - unary `SEND print` (argc `0`) -> UART decimal output
 - binary arithmetic sends (argc `1`) for selectors `+`, `-`, `*`, `/`
 - keyword sends (argc `2`) for bootstrap slot protocol (`addSlot:value:`)
