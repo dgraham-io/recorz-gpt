@@ -1,4 +1,4 @@
-graph TD
+```graph TD
     Start([BC_OP_SEND]) --> Arity{Check op2 Arity}
     
     Arity -->|0: Unary, 1: Binary, 2: Keyword| SetupArgs[Setup Arguments on Stack]
@@ -27,3 +27,4 @@ graph TD
     Fallback[vm_invoke_primitive_failed] --> FallbackSuccess{primitiveFailed Understood?}
     FallbackSuccess -->|Yes| Advance
     FallbackSuccess -->|No| Halt([Print Error & Halt VM])
+```
