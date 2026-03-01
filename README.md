@@ -34,7 +34,9 @@ Current smoke program exercises:
 - global assignment/read (`LOAD_REF` / `STORE_REF`)
 - prototype object cloning (`Object clone`)
 - object slot protocol (`addSlot:value:` / `slotNamed:`) using symbol keys (`#answer`)
-- typed VM constants (`int`, `symbol`, `string`) including `'ok'` smoke literal decode
+- typed VM constants (`int`, `symbol`, `string`, `float`, `scaled-decimal`, `block`, `object-array`, `byte-array`) including `'ok'`, `1e+3`, `-12.34s5`, `[ :z | z + 1 ]`, `#(1 #answer 'ok')`, and `#[1 2 3 255]` smoke literal decode
+- payload protocol primitives (`size`, `at:`, `at:put:`) for strings, byte arrays, and object arrays
+- block activation stubs (`value`, `value:`)
 - unary `print`
 - integer arithmetic sends (`+`, `-`, `*`, `/`)
 - primitive fallback path (`primitiveFailed`) via divide-by-zero recovery

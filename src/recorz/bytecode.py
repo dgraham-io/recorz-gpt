@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import struct
 from dataclasses import dataclass, field
 
 from . import ast
@@ -29,6 +31,11 @@ VM_VERSION = 2
 VM_CONST_INT = 0
 VM_CONST_SYMBOL = 1
 VM_CONST_STRING = 2
+VM_CONST_FLOAT = 3
+VM_CONST_SCALED_DECIMAL = 4
+VM_CONST_BLOCK = 5
+VM_CONST_OBJECT_ARRAY = 6
+VM_CONST_BYTE_ARRAY = 7
 
 VM_OP_HALT = 0
 VM_OP_LOAD_CONST = 1
@@ -76,7 +83,7 @@ class Encoder:
             self.emit("LOAD_CONST", self.add_constant(int(expr.text)))
             return
         if isinstance(expr, ast.ScaledDecimalLiteral):
-            self.emit("LOAD_CONST", self.add_constant(expr.text))
+            self.emit("LOAD_CONST", self.add_constant({"scaled_decimal": expr.text}))
             return
         if isinstance(expr, ast.FloatingPointLiteral):
             self.emit("LOAD_CONST", self.add_constant(float(expr.text.replace("d", "e").replace("q", "e"))))
@@ -91,9 +98,7 @@ class Encoder:
             self.emit("LOAD_CONST", self.add_constant({"symbol": expr.value}))
             return
         if isinstance(expr, ast.ObjectArrayLiteral):
-            for element in expr.elements:
-                self.encode_expression(element)
-            self.emit("MAKE_OBJECT_ARRAY", len(expr.elements))
+            self.emit("LOAD_CONST", self._add_object_array_constant(expr))
             return
         if isinstance(expr, ast.ByteArrayLiteral):
             self.emit("LOAD_CONST", self.add_constant([int(v) for v in expr.elements]))
@@ -130,6 +135,34 @@ class Encoder:
             self._encode_messages_on_top(expr.chains[-1])
             return
         raise EncodeError(f"Unsupported expression type: {type(expr).__name__}")
+
+    def _add_literal_constant(self, expr: ast.Expression) -> int:
+        if isinstance(expr, ast.ObjectArrayLiteral):
+            return self._add_object_array_constant(expr)
+        return self.add_constant(self._literal_to_constant(expr))
+
+    def _add_object_array_constant(self, expr: ast.ObjectArrayLiteral) -> int:
+        element_indices = [self._add_literal_constant(element) for element in expr.elements]
+        return self.add_constant({"object_array_indices": element_indices})
+
+    def _literal_to_constant(self, expr: ast.Expression) -> object:
+        if isinstance(expr, ast.ConstantLiteral):
+            return expr.value
+        if isinstance(expr, ast.IntegerLiteral):
+            return int(expr.text)
+        if isinstance(expr, ast.ScaledDecimalLiteral):
+            return {"scaled_decimal": expr.text}
+        if isinstance(expr, ast.FloatingPointLiteral):
+            return float(expr.text.replace("d", "e").replace("q", "e"))
+        if isinstance(expr, ast.CharacterLiteral):
+            return expr.value
+        if isinstance(expr, ast.StringLiteral):
+            return expr.value
+        if isinstance(expr, ast.SymbolLiteral):
+            return {"symbol": expr.value}
+        if isinstance(expr, ast.ByteArrayLiteral):
+            return [int(v) for v in expr.elements]
+        raise EncodeError(f"Unsupported literal array element type: {type(expr).__name__}")
 
     def _encode_chain(self, receiver: ast.Expression, messages: list[ast.Message]) -> None:
         self.encode_expression(receiver)
@@ -184,6 +217,11 @@ def serialize_vm_binary(chunk: BytecodeChunk) -> bytes:
       - kind:u8 == 0 (int), payload int64 little-endian
       - kind:u8 == 1 (symbol), payload len:u8 + ascii bytes
       - kind:u8 == 2 (string), payload len:u8 + utf-8 bytes
+      - kind:u8 == 3 (float), payload IEEE754 float64 little-endian
+      - kind:u8 == 4 (scaled_decimal), payload len:u8 + ascii bytes
+      - kind:u8 == 5 (block), payload len:u16 + utf-8 JSON bytes
+      - kind:u8 == 6 (object_array), payload len:u16 + [count:u8, const_index:u8 * count]
+      - kind:u8 == 7 (byte_array), payload len:u16 + raw bytes
     - selectors: (len:u8, ascii bytes)
     - instructions: fixed 4-byte records [opcode, op1, op2, op3]
     """
@@ -233,6 +271,46 @@ def serialize_vm_binary(chunk: BytecodeChunk) -> bytes:
             encoded.append(VM_CONST_STRING)
             encoded.append(len(string_bytes))
             encoded.extend(string_bytes)
+            continue
+
+        if isinstance(value, float):
+            encoded.append(VM_CONST_FLOAT)
+            encoded.extend(struct.pack("<d", value))
+            continue
+
+        if isinstance(value, dict) and set(value.keys()) == {"scaled_decimal"} and isinstance(value["scaled_decimal"], str):
+            scaled_bytes = value["scaled_decimal"].encode("ascii", errors="strict")
+            if len(scaled_bytes) > 255:
+                raise EncodeError("Scaled decimal constant too long for VM binary format")
+            encoded.append(VM_CONST_SCALED_DECIMAL)
+            encoded.append(len(scaled_bytes))
+            encoded.extend(scaled_bytes)
+            continue
+
+        if isinstance(value, dict) and set(value.keys()) == {"block"}:
+            block_bytes = json.dumps(value["block"], sort_keys=True, separators=(",", ":")).encode("utf-8", errors="strict")
+            _append_len_u16_constant(encoded, VM_CONST_BLOCK, block_bytes, "Block constant")
+            continue
+
+        if isinstance(value, dict) and set(value.keys()) == {"object_array_indices"}:
+            indices = value["object_array_indices"]
+            if not isinstance(indices, list):
+                raise EncodeError("Object array constant indices must be a list")
+            if len(indices) > 255:
+                raise EncodeError("Object array constant supports at most 255 elements")
+            payload = bytearray([len(indices)])
+            for index in indices:
+                payload.append(_u8_operand(index, "Object array constant index"))
+            _append_len_u16_constant(encoded, VM_CONST_OBJECT_ARRAY, bytes(payload), "Object array constant")
+            continue
+
+        if (
+            isinstance(value, list)
+            and all(isinstance(element, int) for element in value)
+            and all(0 <= element <= 255 for element in value)
+        ):
+            byte_array_bytes = bytes(value)
+            _append_len_u16_constant(encoded, VM_CONST_BYTE_ARRAY, byte_array_bytes, "Byte array constant")
             continue
 
         raise EncodeError(f"VM binary constant is not yet supported: {value!r}")
@@ -285,3 +363,11 @@ def _u8_operand(value: object, label: str) -> int:
     if value < 0 or value > 255:
         raise EncodeError(f"{label} must be within 0..255")
     return value
+
+
+def _append_len_u16_constant(encoded: bytearray, kind: int, payload: bytes, label: str) -> None:
+    if len(payload) > 65535:
+        raise EncodeError(f"{label} too long for VM binary format")
+    encoded.append(kind)
+    encoded.extend(len(payload).to_bytes(2, byteorder="little", signed=False))
+    encoded.extend(payload)

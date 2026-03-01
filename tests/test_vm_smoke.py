@@ -52,6 +52,12 @@ class VmSmokeTests(unittest.TestCase):
         self.assertIn("recorz primitives ready", output)
         self.assertIn("recorz interpreter loop", output)
         self.assertIn("123\n", output)
+        self.assertIn("77\n", output)
+        self.assertIn("12\n", output)
+        self.assertIn("111\n", output)
+        self.assertIn("255\n", output)
+        self.assertIn("9\n", output)
+        self.assertIn("7\n", output)
         self.assertIn("42\n", output)
         self.assertIn("38\n", output)
         self.assertIn("80\n", output)
@@ -79,6 +85,11 @@ def _assert_smoke_bytecode_has_refs(path: Path) -> None:
     offset = 8
     saw_symbol = False
     saw_string = False
+    saw_float = False
+    saw_scaled = False
+    saw_block = False
+    saw_object_array = False
+    saw_byte_array = False
     for _ in range(constants_count):
         kind = blob[offset]
         offset += 1
@@ -101,11 +112,62 @@ def _assert_smoke_bytecode_has_refs(path: Path) -> None:
             if value == b"ok":
                 saw_string = True
             continue
+        if kind == 3:
+            payload = blob[offset : offset + 8]
+            offset += 8
+            if payload:
+                saw_float = True
+            continue
+        if kind == 4:
+            size = blob[offset]
+            offset += 1
+            value = blob[offset : offset + size]
+            offset += size
+            if value == b"-12.34s5":
+                saw_scaled = True
+            continue
+        if kind == 5:
+            size = int.from_bytes(blob[offset : offset + 2], byteorder="little", signed=False)
+            offset += 2
+            value = blob[offset : offset + size]
+            offset += size
+            if b"\"args\":[\"z\"]" in value:
+                saw_block = True
+            continue
+        if kind == 6:
+            size = int.from_bytes(blob[offset : offset + 2], byteorder="little", signed=False)
+            offset += 2
+            if size == 0:
+                raise AssertionError("Smoke bytecode object-array payload is empty")
+            count = blob[offset]
+            value = blob[offset + 1 : offset + size]
+            offset += size
+            if len(value) == count and count == 3:
+                saw_object_array = True
+            continue
+        if kind == 7:
+            size = int.from_bytes(blob[offset : offset + 2], byteorder="little", signed=False)
+            offset += 2
+            value = blob[offset : offset + size]
+            offset += size
+            if value == b"\x01\x02\x03\xff":
+                saw_byte_array = True
+            continue
         raise AssertionError(f"Smoke bytecode contains unsupported constant kind: {kind}")
     if not saw_symbol:
         raise AssertionError("Smoke bytecode is missing #answer symbol constant")
     if not saw_string:
         raise AssertionError("Smoke bytecode is missing 'ok' string constant")
+    if not saw_float:
+        raise AssertionError("Smoke bytecode is missing float constant")
+    if not saw_scaled:
+        raise AssertionError("Smoke bytecode is missing scaled decimal constant")
+    if not saw_block:
+        raise AssertionError("Smoke bytecode is missing block constant")
+    if not saw_object_array:
+        raise AssertionError("Smoke bytecode is missing object-array constant")
+    if not saw_byte_array:
+        raise AssertionError("Smoke bytecode is missing byte-array constant")
 
     for _ in range(selectors_count):
         size = blob[offset]

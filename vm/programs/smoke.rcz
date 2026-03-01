@@ -1,7 +1,27 @@
 o := Object clone.
 o addSlot: #answer value: 123.
 (o slotNamed: #answer) print.
+
+m := Object clone.
+m addSlot: #answer value: 77.
+m addMethod: #id do: [ self ].
+((m id) slotNamed: #answer) print.
+m addMethod: #echo: do: [ :v | v ].
+(m echo: 12) print.
+
 label := 'ok'.
+floatLiteral := 1e+3.
+scaledLiteral := -12.34s5.
+blockLiteral := [ :z | z + 1 ].
+objectArrayLiteral := #(1 #answer 'ok').
+byteArrayLiteral := #[1 2 3 255].
+
+(label at: 0) print.
+(byteArrayLiteral at: 3) print.
+byteArrayLiteral at: 1 put: 9.
+(byteArrayLiteral at: 1) print.
+(objectArrayLiteral size) print.
+(blockLiteral value: 7) print.
 
 x := 40.
 y := 2.

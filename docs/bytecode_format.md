@@ -17,7 +17,6 @@ Hosted instruction set (current):
 - `LOAD_REF <symbol_index>`
 - `STORE_REF <symbol_index>`
 - `SEND <selector_index> <argc>`
-- `MAKE_OBJECT_ARRAY <count>`
 - `DUP`
 - `POP`
 - `RETURN`
@@ -34,6 +33,11 @@ Binary layout:
   - `kind:u8 = 0` -> signed little-endian `int64`
   - `kind:u8 = 1` -> symbol payload `(len:u8, ascii bytes)`
   - `kind:u8 = 2` -> string payload `(len:u8, utf-8 bytes)`
+  - `kind:u8 = 3` -> float payload `(IEEE754 float64, little-endian)`
+  - `kind:u8 = 4` -> scaled-decimal payload `(len:u8, ascii bytes)`
+  - `kind:u8 = 5` -> block payload `(len:u16, utf-8 JSON bytes)`
+  - `kind:u8 = 6` -> object-array payload `(len:u16, [count:u8, const_index:u8 * count])`
+  - `kind:u8 = 7` -> byte-array payload `(len:u16, raw bytes)`
 - selectors: repeated `(len:u8, ascii bytes)`
 - instructions: `instruction_count` entries, each 4 bytes:
   - `opcode:u8`
@@ -57,6 +61,13 @@ The bootstrap interpreter currently supports:
 - integer constants
 - symbol constants (interned as symbol objects)
 - string constants (heap string objects with byte pointer + length metadata)
+- floating-point constants (heap float objects with payload pointer + byte length)
+- scaled-decimal constants (heap scaled-decimal objects with payload pointer + byte length)
+- block constants (heap block objects with serialized payload pointer + length)
+- object-array constants (heap object-array objects materialized from referenced constants)
+- byte-array constants (heap byte-array objects with payload pointer + length)
+- payload-backed protocol primitives for `size`, `at:`, and `at:put:` (strings/byte arrays/object arrays)
+- block activation stubs for `value` / `value:`
 - unary `SEND print` (argc `0`) -> UART decimal output
 - binary arithmetic sends (argc `1`) for selectors `+`, `-`, `*`, `/`
 - keyword sends (argc `2`) for bootstrap slot protocol (`addSlot:value:`)

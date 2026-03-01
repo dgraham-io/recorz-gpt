@@ -17,6 +17,11 @@
 .equ BC_CONST_INT, 0
 .equ BC_CONST_SYMBOL, 1
 .equ BC_CONST_STRING, 2
+.equ BC_CONST_FLOAT, 3
+.equ BC_CONST_SCALED_DECIMAL, 4
+.equ BC_CONST_BLOCK, 5
+.equ BC_CONST_OBJECT_ARRAY, 6
+.equ BC_CONST_BYTE_ARRAY, 7
 
 .equ PRIM_NOOP, 0
 .equ PRIM_UART_PUTC, 1
@@ -32,7 +37,16 @@
 .equ PRIM_SLOT_VALUE_PUT, 26
 .equ PRIM_ADD_SLOT, 27
 .equ PRIM_SLOT_NAMED, 28
+.equ PRIM_ADD_METHOD, 29
 .equ PRIM_PRIMITIVE_FAILED, 31
+.equ PRIM_BYTES_SIZE, 40
+.equ PRIM_BYTES_AT, 41
+.equ PRIM_BYTES_AT_PUT, 42
+.equ PRIM_OBJECT_ARRAY_SIZE, 43
+.equ PRIM_OBJECT_ARRAY_AT, 44
+.equ PRIM_OBJECT_ARRAY_AT_PUT, 45
+.equ PRIM_BLOCK_VALUE, 46
+.equ PRIM_BLOCK_VALUE_ARG, 47
 
 .equ OBJ_PROTO, 0
 .equ OBJ_SLOT_COUNT, 8
@@ -138,6 +152,16 @@ constant_decode_loop:
   beq t0, t1, constant_decode_symbol
   li t1, BC_CONST_STRING
   beq t0, t1, constant_decode_string
+  li t1, BC_CONST_FLOAT
+  beq t0, t1, constant_decode_float
+  li t1, BC_CONST_SCALED_DECIMAL
+  beq t0, t1, constant_decode_scaled_decimal
+  li t1, BC_CONST_BLOCK
+  beq t0, t1, constant_decode_block
+  li t1, BC_CONST_OBJECT_ARRAY
+  beq t0, t1, constant_decode_object_array
+  li t1, BC_CONST_BYTE_ARRAY
+  beq t0, t1, constant_decode_byte_array
   j vm_bad_header
 
 constant_decode_int:
@@ -166,6 +190,72 @@ constant_decode_string:
   mv a0, s9
   mv a1, s10
   call vm_make_string_object
+  bnez a0, vm_bad_header
+  mv t1, a1
+  add s9, s9, s10
+  j constant_decode_store
+
+constant_decode_float:
+  mv a0, s9
+  li a1, 8
+  call vm_make_float_object
+  bnez a0, vm_bad_header
+  mv t1, a1
+  addi s9, s9, 8
+  j constant_decode_store
+
+constant_decode_scaled_decimal:
+  lbu t2, 0(s9)     # scaled decimal byte length
+  addi s9, s9, 1
+  mv s10, t2
+  mv a0, s9
+  mv a1, s10
+  call vm_make_scaled_decimal_object
+  bnez a0, vm_bad_header
+  mv t1, a1
+  add s9, s9, s10
+  j constant_decode_store
+
+constant_decode_block:
+  lbu t2, 0(s9)
+  lbu t3, 1(s9)
+  slli t3, t3, 8
+  or t2, t2, t3     # block payload length (u16)
+  addi s9, s9, 2
+  mv s10, t2
+  mv a0, s9
+  mv a1, s10
+  call vm_make_block_object
+  bnez a0, vm_bad_header
+  mv t1, a1
+  add s9, s9, s10
+  j constant_decode_store
+
+constant_decode_object_array:
+  lbu t2, 0(s9)
+  lbu t3, 1(s9)
+  slli t3, t3, 8
+  or t2, t2, t3     # object-array payload length (u16)
+  addi s9, s9, 2
+  mv s10, t2
+  mv a0, s9
+  mv a1, s10
+  call vm_make_object_array_object
+  bnez a0, vm_bad_header
+  mv t1, a1
+  add s9, s9, s10
+  j constant_decode_store
+
+constant_decode_byte_array:
+  lbu t2, 0(s9)
+  lbu t3, 1(s9)
+  slli t3, t3, 8
+  or t2, t2, t3     # byte-array payload length (u16)
+  addi s9, s9, 2
+  mv s10, t2
+  mv a0, s9
+  mv a1, s10
+  call vm_make_byte_array_object
   bnez a0, vm_bad_header
   mv t1, a1
   add s9, s9, s10
@@ -271,7 +361,7 @@ op_pop:
   j op_advance
 
 op_send:
-  mv t6, t3               # selector index
+  mv s10, t3              # selector index (preserved across calls)
   beqz t4, op_send_unary
   li t0, 1
   beq t4, t0, op_send_binary
@@ -285,9 +375,9 @@ op_send_unary:
 
   # Lookup primitive in receiver prototype chain.
   ld a0, -8(s4)           # receiver value
-  mv a1, t6               # selector index
+  mv a1, s10              # selector index
   call vm_lookup_method_primitive
-  bltz a0, vm_unsupported_send
+  bltz a0, op_send_unary_dynamic
 
   mv t0, a0               # primitive id
   ld a1, -8(s4)           # receiver value
@@ -299,6 +389,23 @@ op_send_unary:
   bnez a0, op_send_unary_fallback
 
   # Replace receiver with result.
+  sd a1, -8(s4)
+  j op_advance
+
+op_send_unary_dynamic:
+  ld s11, -8(s4)          # receiver value (preserved across helper call)
+  mv a0, s11
+  mv a1, s10              # selector index
+  call vm_lookup_dynamic_method_block
+  beqz a0, vm_unsupported_send
+  mv t4, a0               # method block object
+
+  mv a1, t4               # block receiver
+  mv a2, s11              # method receiver (self)
+  li a3, 0
+  li a0, PRIM_BLOCK_VALUE
+  call primitive_dispatch
+  bnez a0, op_send_unary_fallback
   sd a1, -8(s4)
   j op_advance
 
@@ -316,9 +423,9 @@ op_send_binary:
 
   # Lookup primitive in receiver prototype chain.
   ld a0, -16(s4)          # receiver value
-  mv a1, t6               # selector index
+  mv a1, s10              # selector index
   call vm_lookup_method_primitive
-  bltz a0, vm_unsupported_send
+  bltz a0, op_send_binary_dynamic
 
   mv t0, a0               # primitive id
   ld a1, -16(s4)          # receiver value
@@ -330,6 +437,27 @@ op_send_binary:
   bnez a0, op_send_binary_fallback
 
   # Pop receiver+arg and push primitive result.
+  addi s4, s4, -16
+  sd a1, 0(s4)
+  addi s4, s4, 8
+  j op_advance
+
+op_send_binary_dynamic:
+  ld s11, -16(s4)         # receiver value (preserved across helper call)
+  mv a0, s11
+  mv a1, s10              # selector index
+  call vm_lookup_dynamic_method_block
+  beqz a0, vm_unsupported_send
+
+  mv t4, a0               # method block object
+
+  mv a1, t4               # block receiver
+  ld a2, -8(s4)           # method arg0
+  mv a3, s11              # method receiver (self)
+  li a0, PRIM_BLOCK_VALUE_ARG
+  call primitive_dispatch
+  bnez a0, op_send_binary_fallback
+
   addi s4, s4, -16
   sd a1, 0(s4)
   addi s4, s4, 8
@@ -351,7 +479,7 @@ op_send_keyword2:
 
   # Lookup primitive in receiver prototype chain.
   ld a0, -24(s4)          # receiver value
-  mv a1, t6               # selector index
+  mv a1, s10              # selector index
   call vm_lookup_method_primitive
   bltz a0, vm_unsupported_send
 
@@ -415,6 +543,87 @@ vm_lookup_method_not_found:
 vm_lookup_method_done:
   ld ra, 16(sp)
   addi sp, sp, 24
+  ret
+
+# a0=receiver value, a1=selector index -> a0=block object ptr or 0
+vm_lookup_dynamic_method_block:
+  addi sp, sp, -32
+  sd ra, 24(sp)
+  sd a0, 16(sp)
+  sd a1, 8(sp)
+
+  beqz a0, vm_lookup_dynamic_method_not_found
+  andi t0, a0, 1
+  bnez t0, vm_lookup_dynamic_method_not_found
+
+  # Convert selector index to selector bytes.
+  mv a0, a1
+  call vm_get_selector_by_index
+  bltz a2, vm_lookup_dynamic_method_not_found
+  mv t1, a0               # selector bytes ptr
+  mv t2, a1               # selector length
+
+  ld t4, 16(sp)           # receiver object ptr
+  ld t5, OBJ_SLOT_COUNT(t4)
+  li t6, 0
+
+vm_lookup_dynamic_method_loop:
+  bgeu t6, t5, vm_lookup_dynamic_method_not_found
+
+  slli a2, t6, 3
+  add a2, t4, a2
+  addi a2, a2, OBJ_SLOTS
+  ld a3, 0(a2)            # slot object ptr
+  beqz a3, vm_lookup_dynamic_method_next
+
+  # Compare slot-name symbol bytes to selector bytes.
+  ld a4, OBJ_SLOTS(a3)    # slot name object
+  beqz a4, vm_lookup_dynamic_method_next
+  andi a5, a4, 1
+  bnez a5, vm_lookup_dynamic_method_next
+
+  ld a5, OBJ_SLOTS+8(a4)  # tagged symbol-name length
+  andi a6, a5, 1
+  beqz a6, vm_lookup_dynamic_method_next
+  srai a5, a5, 1
+  bne a5, t2, vm_lookup_dynamic_method_next
+
+  ld a6, OBJ_SLOTS(a4)    # slot-name bytes ptr
+  mv a7, t1               # selector bytes ptr
+  li t0, 0
+
+vm_lookup_dynamic_method_cmp_loop:
+  bgeu t0, t2, vm_lookup_dynamic_method_name_match
+  lbu t3, 0(a6)
+  lbu a0, 0(a7)
+  bne t3, a0, vm_lookup_dynamic_method_next
+  addi a6, a6, 1
+  addi a7, a7, 1
+  addi t0, t0, 1
+  j vm_lookup_dynamic_method_cmp_loop
+
+vm_lookup_dynamic_method_name_match:
+  ld a5, OBJ_SLOTS+8(a3)  # slot value
+  beqz a5, vm_lookup_dynamic_method_not_found
+  andi a6, a5, 1
+  bnez a6, vm_lookup_dynamic_method_not_found
+  ld a7, OBJ_PROTO(a5)
+  la t0, proto_block
+  bne a7, t0, vm_lookup_dynamic_method_not_found
+
+  mv a0, a5
+  j vm_lookup_dynamic_method_done
+
+vm_lookup_dynamic_method_next:
+  addi t6, t6, 1
+  j vm_lookup_dynamic_method_loop
+
+vm_lookup_dynamic_method_not_found:
+  li a0, 0
+
+vm_lookup_dynamic_method_done:
+  ld ra, 24(sp)
+  addi sp, sp, 32
   ret
 
 # a0=selector index -> a0=selector bytes ptr, a1=len, a2=status(0/-1)
@@ -595,6 +804,211 @@ vm_make_string_object_fail:
   li a1, 0
 
 vm_make_string_object_done:
+  ld ra, 16(sp)
+  addi sp, sp, 24
+  ret
+
+# a0=float payload ptr (8 bytes), a1=len(8) -> a0=status, a1=float object ptr
+vm_make_float_object:
+  addi sp, sp, -24
+  sd ra, 16(sp)
+  sd a0, 8(sp)
+  sd a1, 0(sp)
+
+  call vm_alloc_object
+  bltz a0, vm_make_float_object_fail
+  mv t0, a1
+
+  la t1, proto_float
+  sd t1, OBJ_PROTO(t0)
+  li t1, 2
+  sd t1, OBJ_SLOT_COUNT(t0)
+
+  ld t1, 8(sp)
+  sd t1, OBJ_SLOTS(t0)
+
+  ld t1, 0(sp)
+  slli t1, t1, 1
+  ori t1, t1, 1
+  sd t1, OBJ_SLOTS+8(t0)
+
+  mv a1, t0
+  li a0, 0
+  j vm_make_float_object_done
+
+vm_make_float_object_fail:
+  li a0, -1
+  li a1, 0
+
+vm_make_float_object_done:
+  ld ra, 16(sp)
+  addi sp, sp, 24
+  ret
+
+# a0=scaled-decimal bytes ptr, a1=len -> a0=status, a1=scaled-decimal object ptr
+vm_make_scaled_decimal_object:
+  addi sp, sp, -24
+  sd ra, 16(sp)
+  sd a0, 8(sp)
+  sd a1, 0(sp)
+
+  call vm_alloc_object
+  bltz a0, vm_make_scaled_decimal_object_fail
+  mv t0, a1
+
+  la t1, proto_scaled_decimal
+  sd t1, OBJ_PROTO(t0)
+  li t1, 2
+  sd t1, OBJ_SLOT_COUNT(t0)
+
+  ld t1, 8(sp)
+  sd t1, OBJ_SLOTS(t0)
+
+  ld t1, 0(sp)
+  slli t1, t1, 1
+  ori t1, t1, 1
+  sd t1, OBJ_SLOTS+8(t0)
+
+  mv a1, t0
+  li a0, 0
+  j vm_make_scaled_decimal_object_done
+
+vm_make_scaled_decimal_object_fail:
+  li a0, -1
+  li a1, 0
+
+vm_make_scaled_decimal_object_done:
+  ld ra, 16(sp)
+  addi sp, sp, 24
+  ret
+
+# a0=block payload bytes ptr, a1=len -> a0=status, a1=block object ptr
+vm_make_block_object:
+  addi sp, sp, -24
+  sd ra, 16(sp)
+  sd a0, 8(sp)
+  sd a1, 0(sp)
+
+  call vm_alloc_object
+  bltz a0, vm_make_block_object_fail
+  mv t0, a1
+
+  la t1, proto_block
+  sd t1, OBJ_PROTO(t0)
+  li t1, 2
+  sd t1, OBJ_SLOT_COUNT(t0)
+
+  ld t1, 8(sp)
+  sd t1, OBJ_SLOTS(t0)
+
+  ld t1, 0(sp)
+  slli t1, t1, 1
+  ori t1, t1, 1
+  sd t1, OBJ_SLOTS+8(t0)
+
+  mv a1, t0
+  li a0, 0
+  j vm_make_block_object_done
+
+vm_make_block_object_fail:
+  li a0, -1
+  li a1, 0
+
+vm_make_block_object_done:
+  ld ra, 16(sp)
+  addi sp, sp, 24
+  ret
+
+# a0=object-array payload bytes ptr, a1=len -> a0=status, a1=object-array object ptr
+vm_make_object_array_object:
+  addi sp, sp, -24
+  sd ra, 16(sp)
+  sd a0, 8(sp)
+  sd a1, 0(sp)
+
+  ld t1, 0(sp)            # payload length
+  beqz t1, vm_make_object_array_object_fail
+  ld t2, 8(sp)            # payload ptr
+  lbu t3, 0(t2)           # element count
+  li t4, OBJ_FIXED_SLOTS
+  bgtu t3, t4, vm_make_object_array_object_fail
+  addi t5, t3, 1
+  bne t5, t1, vm_make_object_array_object_fail
+
+  call vm_alloc_object
+  bltz a0, vm_make_object_array_object_fail
+  mv t0, a1
+  ld t2, 8(sp)
+  lbu t3, 0(t2)
+
+  la t1, proto_object_array
+  sd t1, OBJ_PROTO(t0)
+  sd t3, OBJ_SLOT_COUNT(t0)
+
+  li t4, 0
+vm_make_object_array_fill_loop:
+  bgeu t4, t3, vm_make_object_array_object_success
+  add a4, t2, t4
+  addi a4, a4, 1
+  lbu a2, 0(a4)           # constant index
+  bgeu a2, s11, vm_make_object_array_object_fail
+  slli a5, a2, 3
+  add a5, s1, a5
+  ld a3, 0(a5)
+  slli a6, t4, 3
+  add a6, t0, a6
+  addi a6, a6, OBJ_SLOTS
+  sd a3, 0(a6)
+  addi t4, t4, 1
+  j vm_make_object_array_fill_loop
+
+vm_make_object_array_object_success:
+  mv a1, t0
+  li a0, 0
+  j vm_make_object_array_object_done
+
+vm_make_object_array_object_fail:
+  li a0, -1
+  li a1, 0
+
+vm_make_object_array_object_done:
+  ld ra, 16(sp)
+  addi sp, sp, 24
+  ret
+
+# a0=byte-array payload bytes ptr, a1=len -> a0=status, a1=byte-array object ptr
+vm_make_byte_array_object:
+  addi sp, sp, -24
+  sd ra, 16(sp)
+  sd a0, 8(sp)
+  sd a1, 0(sp)
+
+  call vm_alloc_object
+  bltz a0, vm_make_byte_array_object_fail
+  mv t0, a1
+
+  la t1, proto_byte_array
+  sd t1, OBJ_PROTO(t0)
+  li t1, 2
+  sd t1, OBJ_SLOT_COUNT(t0)
+
+  ld t1, 8(sp)
+  sd t1, OBJ_SLOTS(t0)
+
+  ld t1, 0(sp)
+  slli t1, t1, 1
+  ori t1, t1, 1
+  sd t1, OBJ_SLOTS+8(t0)
+
+  mv a1, t0
+  li a0, 0
+  j vm_make_byte_array_object_done
+
+vm_make_byte_array_object_fail:
+  li a0, -1
+  li a1, 0
+
+vm_make_byte_array_object_done:
   ld ra, 16(sp)
   addi sp, sp, 24
   ret
@@ -1043,8 +1457,41 @@ primitive_add_slot_find_loop:
   beqz t3, primitive_add_slot_next
 
   ld t4, OBJ_SLOTS(t3)
-  bne t4, a2, primitive_add_slot_next
+  beq t4, a2, primitive_add_slot_match
+  beqz t4, primitive_add_slot_next
 
+  andi t5, t4, 1
+  bnez t5, primitive_add_slot_next
+  andi t5, a2, 1
+  bnez t5, primitive_add_slot_next
+
+  ld t5, OBJ_PROTO(t4)
+  la t6, proto_symbol
+  bne t5, t6, primitive_add_slot_next
+  ld t5, OBJ_PROTO(a2)
+  bne t5, t6, primitive_add_slot_next
+
+  ld t5, OBJ_SLOTS+8(t4)
+  ld t6, OBJ_SLOTS+8(a2)
+  bne t5, t6, primitive_add_slot_next
+  andi a4, t5, 1
+  beqz a4, primitive_add_slot_next
+  srai t5, t5, 1
+
+  ld a5, OBJ_SLOTS(t4)
+  ld a6, OBJ_SLOTS(a2)
+  li a7, 0
+primitive_add_slot_name_cmp_loop:
+  bgeu a7, t5, primitive_add_slot_match
+  lbu a4, 0(a5)
+  lbu t6, 0(a6)
+  bne a4, t6, primitive_add_slot_next
+  addi a5, a5, 1
+  addi a6, a6, 1
+  addi a7, a7, 1
+  j primitive_add_slot_name_cmp_loop
+
+primitive_add_slot_match:
   sd a3, OBJ_SLOTS+8(t3)
   li a0, 0
   ret
@@ -1097,12 +1544,26 @@ primitive_add_slot_alloc_failed:
   addi sp, sp, 32
   j primitive_alloc_failed
 
+# Expects a1=receiver object ptr, a2=method selector symbol, a3=block object.
+primitive_add_method:
+  j primitive_add_slot
+
 # Expects a1=receiver object ptr, a2=slot name object.
 primitive_slot_named:
   beqz a1, primitive_bad_type
   andi t0, a1, 1
   bnez t0, primitive_bad_type
   beqz a2, primitive_bad_type
+  addi sp, sp, -16
+  sd ra, 8(sp)
+  sd a1, 0(sp)
+  ld a0, OBJ_SLOT_COUNT(a1)
+  call uart_putint
+  li a0, 10
+  call uart_putc
+  ld a1, 0(sp)
+  ld ra, 8(sp)
+  addi sp, sp, 16
 
   ld t0, OBJ_SLOT_COUNT(a1)
   li t1, 0
@@ -1116,8 +1577,41 @@ primitive_slot_named_loop:
   beqz t3, primitive_slot_named_next
 
   ld t4, OBJ_SLOTS(t3)
-  bne t4, a2, primitive_slot_named_next
+  beq t4, a2, primitive_slot_named_match
+  beqz t4, primitive_slot_named_next
 
+  andi t5, t4, 1
+  bnez t5, primitive_slot_named_next
+  andi t5, a2, 1
+  bnez t5, primitive_slot_named_next
+
+  ld t5, OBJ_PROTO(t4)
+  la t6, proto_symbol
+  bne t5, t6, primitive_slot_named_next
+  ld t5, OBJ_PROTO(a2)
+  bne t5, t6, primitive_slot_named_next
+
+  ld t5, OBJ_SLOTS+8(t4)
+  ld t6, OBJ_SLOTS+8(a2)
+  bne t5, t6, primitive_slot_named_next
+  andi a4, t5, 1
+  beqz a4, primitive_slot_named_next
+  srai t5, t5, 1
+
+  ld a5, OBJ_SLOTS(t4)
+  ld a6, OBJ_SLOTS(a2)
+  li a7, 0
+primitive_slot_named_cmp_loop:
+  bgeu a7, t5, primitive_slot_named_match
+  lbu a4, 0(a5)
+  lbu t6, 0(a6)
+  bne a4, t6, primitive_slot_named_next
+  addi a5, a5, 1
+  addi a6, a6, 1
+  addi a7, a7, 1
+  j primitive_slot_named_cmp_loop
+
+primitive_slot_named_match:
   ld a1, OBJ_SLOTS+8(t3)
   li a0, 0
   ret
@@ -1125,6 +1619,140 @@ primitive_slot_named_loop:
 primitive_slot_named_next:
   addi t1, t1, 1
   j primitive_slot_named_loop
+
+# Expects a1=receiver bytes-like object ptr (string/byte-array).
+primitive_bytes_size:
+  beqz a1, primitive_bad_type
+  andi t0, a1, 1
+  bnez t0, primitive_bad_type
+  ld a1, OBJ_SLOTS+8(a1)  # tagged length
+  li a0, 0
+  ret
+
+# Expects a1=receiver bytes-like object ptr, a2=tagged index.
+primitive_bytes_at:
+  beqz a1, primitive_bad_type
+  andi t0, a1, 1
+  bnez t0, primitive_bad_type
+  andi t0, a2, 1
+  beqz t0, primitive_bad_type
+
+  srai t1, a2, 1
+  bltz t1, primitive_bad_index
+
+  ld t2, OBJ_SLOTS+8(a1)  # tagged length
+  andi t3, t2, 1
+  beqz t3, primitive_bad_type
+  srai t2, t2, 1
+  bgeu t1, t2, primitive_bad_index
+
+  ld t4, OBJ_SLOTS(a1)    # bytes ptr
+  add t4, t4, t1
+  lbu t5, 0(t4)
+  slli a1, t5, 1
+  ori a1, a1, 1
+  li a0, 0
+  ret
+
+# Expects a1=receiver bytes-like object ptr, a2=tagged index, a3=tagged value byte.
+primitive_bytes_at_put:
+  beqz a1, primitive_bad_type
+  andi t0, a1, 1
+  bnez t0, primitive_bad_type
+  andi t0, a2, 1
+  beqz t0, primitive_bad_type
+  andi t0, a3, 1
+  beqz t0, primitive_bad_type
+
+  srai t1, a2, 1
+  bltz t1, primitive_bad_index
+  srai t2, a3, 1
+  bltz t2, primitive_bad_type
+  li t3, 255
+  bgtu t2, t3, primitive_bad_type
+
+  ld t4, OBJ_SLOTS+8(a1)  # tagged length
+  andi t5, t4, 1
+  beqz t5, primitive_bad_type
+  srai t4, t4, 1
+  bgeu t1, t4, primitive_bad_index
+
+  ld t6, OBJ_SLOTS(a1)    # bytes ptr
+  add t6, t6, t1
+  sb t2, 0(t6)
+  mv a1, a3
+  li a0, 0
+  ret
+
+# Expects a1=receiver object-array object ptr.
+primitive_object_array_size:
+  beqz a1, primitive_bad_type
+  andi t0, a1, 1
+  bnez t0, primitive_bad_type
+  ld t1, OBJ_SLOT_COUNT(a1)
+  slli a1, t1, 1
+  ori a1, a1, 1
+  li a0, 0
+  ret
+
+# Expects a1=receiver object-array object ptr, a2=tagged index.
+primitive_object_array_at:
+  beqz a1, primitive_bad_type
+  andi t0, a1, 1
+  bnez t0, primitive_bad_type
+  andi t0, a2, 1
+  beqz t0, primitive_bad_type
+
+  srai t1, a2, 1
+  bltz t1, primitive_bad_index
+  ld t2, OBJ_SLOT_COUNT(a1)
+  bgeu t1, t2, primitive_bad_index
+
+  slli t3, t1, 3
+  add t3, a1, t3
+  addi t3, t3, OBJ_SLOTS
+  ld a1, 0(t3)
+  li a0, 0
+  ret
+
+# Expects a1=receiver object-array object ptr, a2=tagged index, a3=value.
+primitive_object_array_at_put:
+  beqz a1, primitive_bad_type
+  andi t0, a1, 1
+  bnez t0, primitive_bad_type
+  andi t0, a2, 1
+  beqz t0, primitive_bad_type
+
+  srai t1, a2, 1
+  bltz t1, primitive_bad_index
+  ld t2, OBJ_SLOT_COUNT(a1)
+  bgeu t1, t2, primitive_bad_index
+
+  slli t3, t1, 3
+  add t3, a1, t3
+  addi t3, t3, OBJ_SLOTS
+  sd a3, 0(t3)
+  mv a1, a3
+  li a0, 0
+  ret
+
+# Expects a1=receiver block object ptr.
+primitive_block_value:
+  beqz a1, primitive_bad_type
+  andi t0, a1, 1
+  bnez t0, primitive_bad_type
+  mv a1, a2
+  li a0, 0
+  ret
+
+# Expects a1=receiver block object ptr, a2=arg, a3=method receiver (unused currently).
+primitive_block_value_arg:
+  beqz a1, primitive_bad_type
+  andi t0, a1, 1
+  bnez t0, primitive_bad_type
+  mv a1, a2
+  li a0, 0
+  ret
 
 # Expects a1=receiver, returns receiver.
 primitive_primitive_failed:
@@ -1294,7 +1922,7 @@ vm_stack_underflow_message:
 .align 3
 proto_object:
   .dword 0
-  .dword 4
+  .dword 5
   .dword proto_object_slots
 
 .align 3
@@ -1312,8 +1940,38 @@ proto_symbol:
 .align 3
 proto_string:
   .dword proto_object
+  .dword 3
+  .dword proto_string_slots
+
+.align 3
+proto_float:
+  .dword proto_object
   .dword 0
   .dword 0
+
+.align 3
+proto_scaled_decimal:
+  .dword proto_object
+  .dword 0
+  .dword 0
+
+.align 3
+proto_block:
+  .dword proto_object
+  .dword 2
+  .dword proto_block_slots
+
+.align 3
+proto_object_array:
+  .dword proto_object
+  .dword 3
+  .dword proto_object_array_slots
+
+.align 3
+proto_byte_array:
+  .dword proto_object
+  .dword 3
+  .dword proto_byte_array_slots
 
 .align 3
 proto_integer:
@@ -1349,6 +2007,10 @@ proto_object_slots:
   .dword 5
   .dword PRIM_CLONE_OBJECT
 
+  .dword selector_name_add_method_do
+  .dword 13
+  .dword PRIM_ADD_METHOD
+
   .dword selector_name_add_slot
   .dword 14
   .dword PRIM_ADD_SLOT
@@ -1375,6 +2037,58 @@ proto_slot_slots:
   .dword 6
   .dword PRIM_SLOT_VALUE_PUT
 
+.align 3
+proto_string_slots:
+  .dword selector_name_size
+  .dword 4
+  .dword PRIM_BYTES_SIZE
+
+  .dword selector_name_at
+  .dword 3
+  .dword PRIM_BYTES_AT
+
+  .dword selector_name_at_put
+  .dword 7
+  .dword PRIM_BYTES_AT_PUT
+
+.align 3
+proto_object_array_slots:
+  .dword selector_name_size
+  .dword 4
+  .dword PRIM_OBJECT_ARRAY_SIZE
+
+  .dword selector_name_at
+  .dword 3
+  .dword PRIM_OBJECT_ARRAY_AT
+
+  .dword selector_name_at_put
+  .dword 7
+  .dword PRIM_OBJECT_ARRAY_AT_PUT
+
+.align 3
+proto_byte_array_slots:
+  .dword selector_name_size
+  .dword 4
+  .dword PRIM_BYTES_SIZE
+
+  .dword selector_name_at
+  .dword 3
+  .dword PRIM_BYTES_AT
+
+  .dword selector_name_at_put
+  .dword 7
+  .dword PRIM_BYTES_AT_PUT
+
+.align 3
+proto_block_slots:
+  .dword selector_name_value
+  .dword 5
+  .dword PRIM_BLOCK_VALUE
+
+  .dword selector_name_value_put
+  .dword 6
+  .dword PRIM_BLOCK_VALUE_ARG
+
 selector_name_print:
   .ascii "print"
 selector_name_plus:
@@ -1387,6 +2101,8 @@ selector_name_div:
   .ascii "/"
 selector_name_clone:
   .ascii "clone"
+selector_name_add_method_do:
+  .ascii "addMethod:do:"
 selector_name_add_slot:
   .ascii "addSlot:value:"
 selector_name_slot_named:
@@ -1395,6 +2111,12 @@ selector_name_primitive_failed:
   .ascii "primitiveFailed"
 selector_name_name:
   .ascii "name"
+selector_name_size:
+  .ascii "size"
+selector_name_at:
+  .ascii "at:"
+selector_name_at_put:
+  .ascii "at:put:"
 selector_name_value:
   .ascii "value"
 selector_name_value_put:
@@ -1427,10 +2149,21 @@ primitive_table:
   .dword primitive_slot_value_put
   .dword primitive_add_slot
   .dword primitive_slot_named
-  .dword primitive_unimplemented
+  .dword primitive_add_method
   .dword primitive_unimplemented
   .dword primitive_primitive_failed
-  .rept 224
+  .rept 8
+  .dword primitive_unimplemented
+  .endr
+  .dword primitive_bytes_size
+  .dword primitive_bytes_at
+  .dword primitive_bytes_at_put
+  .dword primitive_object_array_size
+  .dword primitive_object_array_at
+  .dword primitive_object_array_at_put
+  .dword primitive_block_value
+  .dword primitive_block_value_arg
+  .rept 208
   .dword primitive_unimplemented
   .endr
 

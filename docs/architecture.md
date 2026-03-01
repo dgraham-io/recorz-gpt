@@ -20,11 +20,13 @@
 - UART output routines
 - Primitive dispatch table (`0..255`)
 - RCBC v2 bytecode interpreter loop (subset):
-  - integer, symbol, and string constants
+  - integer, symbol, string, float, scaled-decimal, block, object-array, and byte-array constants
   - global `LOAD_REF`/`STORE_REF`
   - tagged values (`int` immediates + object pointers)
   - prototype-chain method lookup for integer and object sends
   - bootstrap `Object` global with slot-object protocol primitives (`clone`, `addSlot:value:`, `slotNamed:`)
+  - payload-backed protocols (`size`, `at:`, `at:put:`) for byte arrays, strings, and object arrays
+  - block activation stubs (`value`, `value:`)
   - unary `print`
   - binary integer arithmetic (`+`, `-`, `*`, `/`)
   - primitive failure fallback through `primitiveFailed`

@@ -27,6 +27,9 @@ Completed:
 - Added VM-side primitive failure fallback path (`primitiveFailed`) and validated recovery in smoke (`x / 0` falls back without VM abort).
 - Upgraded VM binary to RCBC v2 typed constants (int + symbol), added VM symbol interning, and migrated smoke slot naming to symbol literals (`#answer`).
 - Extended RCBC v2 constants with string payloads, added VM string object construction for bytecode `LOAD_CONST`, and exercised this path in smoke (`'ok'` literal).
+- Extended RCBC v2 constants with float and scaled-decimal payload kinds, added VM object construction for both constant forms, and exercised decode paths in smoke.
+- Extended RCBC v2 constants with block/object-array/byte-array payload kinds, added VM object construction for these forms, and exercised decode paths in smoke.
+- Added payload-backed protocol primitives (`size`, `at:`, `at:put:`) for strings/byte arrays/object arrays and block activation stubs (`value`, `value:`); exercised these paths in smoke output.
 - Expanded parser conformance tests for nested object arrays, radix/scaled/float literals, and non-local returns in blocks.
 
 Invariants changed:
@@ -38,7 +41,9 @@ Known risks:
 - Parser currently targets core syntax used by fixtures and tests; rare grammar corners may need extension.
 - Bytecode format is host bootstrap IR, not final VM encoding.
 - VM interpreter currently supports integer constants, reference bindings, integer/object prototype sends, slot-object storage, and primitive fallback; delegation semantics are still bootstrap-level and not yet image-object-model complete.
-- RCBC v2 constant support currently covers integers, symbols, and strings; float/scaled-decimal/block/object literals still need binary encoding/runtime forms.
+- RCBC v2 constant support currently covers integers, symbols, strings, floats, scaled-decimals, blocks, object-arrays, and byte-arrays.
+- Block execution is still stubbed (`value`/`value:` do not execute captured bytecode yet).
+- Method objects/user-defined method execution are still not wired into dispatch.
 
 Next acceptance criteria:
-- Extend RCBC v2 constants to include additional hosted literal forms (scaled-decimal/float first, then blocks/object literals) with deterministic VM runtime representation.
+- Implement non-stub block activation semantics and wire `addMethod:do:` so user-defined methods can execute via normal message dispatch.

@@ -45,7 +45,15 @@ Expected UART output includes:
 - `27`: object `addSlot:value:`
 - `28`: object `slotNamed:`
 - `31`: `primitiveFailed` fallback hook
-- `3..9`, `15..19`, `21..23`, `29..30`, `32..255`: unimplemented (`-1` failure)
+- `40`: bytes-like `size`
+- `41`: bytes-like `at:`
+- `42`: bytes-like `at:put:`
+- `43`: object-array `size`
+- `44`: object-array `at:`
+- `45`: object-array `at:put:`
+- `46`: block `value` (stub)
+- `47`: block `value:` (stub)
+- `3..9`, `15..19`, `21..23`, `29..30`, `32..39`, `48..255`: unimplemented (`-1` failure)
 
 This table establishes a stable dispatch mechanism for the `<primitive: N>` language contract while behavior is filled in incrementally.
 
@@ -53,5 +61,5 @@ This table establishes a stable dispatch mechanism for the `<primitive: N>` lang
 
 - VM now executes RCBC v2 bytecode generated from `vm/programs/smoke.rcz`.
 - `SEND` resolves selectors via a prototype delegation chain (bootstrap prototypes: `ProtoObject` and `IntegerProto`) and executes method behavior through primitive dispatch.
-- Current interpreter supports integer/symbol/string constants, `LOAD_REF`/`STORE_REF`, unary `print`, binary arithmetic sends (`+`, `-`, `*`, `/`), object slot protocol primitives (`clone`, `addSlot:value:`, `slotNamed:`), and primitive fallback to `primitiveFailed`.
+- Current interpreter supports integer/symbol/string/float/scaled-decimal/block/object-array/byte-array constants, `LOAD_REF`/`STORE_REF`, unary `print`, binary arithmetic sends (`+`, `-`, `*`, `/`), payload collection protocol primitives (`size`, `at:`, `at:put:`), block activation stubs (`value`, `value:`), object slot protocol primitives (`clone`, `addSlot:value:`, `slotNamed:`), and primitive fallback to `primitiveFailed`.
 - Remaining message semantics and object model integration are upcoming milestones.
