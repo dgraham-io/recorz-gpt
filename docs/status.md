@@ -65,6 +65,13 @@ Completed:
 - Upgraded executable block payload format to `RBLK` v3 with optional declared primitive ID metadata.
 - Added VM runtime support for block/method primitive declarations (`<primitive: N>`) with Smalltalk-style fallback-to-body semantics when the primitive fails.
 - Added smoke/runtime coverage for declared-primitive fallback execution (`primFallback` yields `444`).
+- Added unresolved-send slot-accessor fallback for existing slots (`x`/`x:` style) in both top-level interpreter sends and block/method evaluator sends.
+- Added integer `sqrt` primitive support (`PRIM 15`) and bound `sqrt` on `Integer` prototype dispatch.
+- Added dedicated QEMU runtime gate for `docs/code_example.md` core-path execution (`5` output, no DNU diagnostics).
+- Added dual-mode primitive `10/11` behavior so block primitive declarations can provide object-memory `byteAt:` / `byteAt:put:` semantics while preserving integer `print` / `+` behavior for tagged-int receivers.
+- Added dedicated VM runtime program/test coverage for primitive `10/11` object-memory path (`memory.rcz`).
+- Added bootstrap protocol coverage matrix document (`docs/protocol_matrix.md`) mapping selectors/prototypes to runtime tests.
+- Added dedicated selector-coverage QEMU gate (`protocol_core.rcz` + `test_qemu_protocol_core_matrix`) to catch unexpected DNU regressions across core protocols.
 
 Invariants changed:
 - `self` is lexical and reserved.
@@ -80,6 +87,7 @@ Known risks:
 - Closure capture supports nested block capture of outer block arguments and block locals via runtime env objects, including mutation of captured refs inside closure bodies.
 - Closure envs are shared across sibling closures from one lexical activation; deeper conformance coverage for mixed arg/local capture across multi-level nesting is still limited.
 - Dynamic method dispatch executes block method bodies across selector arities (including multi-keyword selectors); richer context/debug semantics remain.
+- Slot-accessor fallback currently applies to unresolved sends and may still need stricter policy controls for protocol conflicts in larger images.
 - Escaped non-local return now recovers to a first-class runtime `CannotReturn` object with `onCannotReturn:` handling; full image-level exception stack semantics are still pending.
 - Message-miss fallback currently emits serial diagnostics and returns the receiver; structured debugger objects/stack snapshots are not implemented yet.
 - Image persistence now supports serial host transfer (`exportImage:`/`importImage`) across QEMU restarts with checksum validation and a host-side file workflow, but transport is still raw UART text with no replay protection or in-VM disk/virtio backend.

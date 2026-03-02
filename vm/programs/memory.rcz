@@ -1,0 +1,19 @@
+MemoryProto := Object clone.
+
+MemoryProto addMethod: #byteAt:
+            do: [ :address |
+                <primitive: 10>
+                ^ self primitiveFailed
+            ].
+
+MemoryProto addMethod: #byteAt:put:
+            do: [ :address :value |
+                <primitive: 11>
+                ^ self primitiveFailed
+            ].
+
+m := MemoryProto clone.
+memAddr := 536870928.
+m byteAt: memAddr put: 123.
+(m byteAt: memAddr) print.
+(40 + 2) print.

@@ -114,7 +114,7 @@ Tasks:
 - reduce DNU-only fallback usage in expected paths
 
 Deliverables:
-- `docs/protocol_matrix.md` (prototype + selector + status + test)
+- expanded `docs/protocol_matrix.md` (prototype + selector + status + test, beyond bootstrap core)
 - expanded runtime tests proving protocol coverage
 
 Definition of done:

@@ -1,0 +1,30 @@
+p := Object clone.
+p addSlot: #x value: 3.
+p addSlot: #y value: 4.
+
+p x print.
+p x: 9.
+p x print.
+
+sum := (p x) + (p y).
+sum print.
+(sum sqrt) print.
+
+bytes := #[10 20 30].
+(bytes size) print.
+(bytes at: 1) print.
+bytes at: 1 put: 99.
+(bytes at: 1) print.
+
+objs := #(1 2 3).
+(objs size) print.
+(objs at: 2) print.
+objs at: 2 put: 7.
+(objs at: 2) print.
+
+blk := [ :n | n + 1 ].
+(blk value: 6) print.
+
+p addMethod: #incX do: [ self x: self x + 1 ].
+p incX.
+p x print.

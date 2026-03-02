@@ -1,5 +1,12 @@
 # recorz-gpt
 
+## Start Here
+
+- Usage and experimentation workflow: `docs/usage_guide.md`
+- Bootstrap protocol coverage matrix: `docs/protocol_matrix.md`
+- Detailed remaining work and milestone backlog: `docs/remaining_work.md`
+- Current implementation status log: `docs/status.md`
+
 ## Phase 1 tooling
 
 Hosted parser/bytecode tooling lives under `src/recorz`.
@@ -45,6 +52,8 @@ Current smoke program exercises:
 Additional dedicated VM runtime programs under `vm/programs/` exercise:
 - escaped non-local return recovery (`cannot_return.rcz`)
 - `doesNotUnderstand:argc:` fallback at top-level and in method/block execution (`dnu.rcz`)
+- primitive `10/11` object-memory path (`memory.rcz`)
+- protocol selector coverage gate (`protocol_core.rcz`)
 - image snapshot/restore v0 (`image.rcz`)
 - serial host image bridge roundtrip (`image_host_export.rcz` + `image_host_import.rcz`)
 

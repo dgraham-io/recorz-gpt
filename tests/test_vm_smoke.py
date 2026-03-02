@@ -135,6 +135,58 @@ class VmSmokeTests(unittest.TestCase):
         self.assertNotIn("unsupported send", output)
         self.assertIn("recorz vm done", output)
 
+    def test_qemu_code_example_core_path(self) -> None:
+        if shutil.which("qemu-system-riscv64") is None:
+            self.skipTest("qemu-system-riscv64 not installed")
+        if shutil.which("riscv64-unknown-elf-gcc") is None:
+            self.skipTest("riscv64-unknown-elf-gcc not installed")
+
+        subprocess.run(
+            ["make", "all", "PROGRAM_SRC=../docs/code_example.md"],
+            cwd=REPO_ROOT / "vm",
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+        cmd = [
+            "qemu-system-riscv64",
+            "-machine",
+            "virt",
+            "-nographic",
+            "-bios",
+            "none",
+            "-kernel",
+            str(REPO_ROOT / "vm" / "build" / "recorz.elf"),
+            "-serial",
+            "stdio",
+            "-monitor",
+            "none",
+        ]
+
+        output = ""
+        try:
+            result = subprocess.run(
+                cmd,
+                cwd=REPO_ROOT,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=8.0,
+            )
+            output = (result.stdout or "") + (result.stderr or "")
+        except subprocess.TimeoutExpired as exc:
+            output = _as_text(exc.stdout) + _as_text(exc.stderr)
+
+        self.assertIn("recorz vm boot ok", output)
+        self.assertIn("recorz primitives ready", output)
+        self.assertIn("recorz interpreter loop", output)
+        self.assertIn("5\n", output)
+        self.assertNotIn("recorz dnu:", output)
+        self.assertNotIn("primitive failed", output)
+        self.assertNotIn("unsupported send", output)
+        self.assertIn("recorz vm done", output)
+
     def test_qemu_dnu_fallback(self) -> None:
         if shutil.which("qemu-system-riscv64") is None:
             self.skipTest("qemu-system-riscv64 not installed")
@@ -186,6 +238,117 @@ class VmSmokeTests(unittest.TestCase):
         self.assertIn("recorz dnu: missing:with: argc=2", output)
         self.assertIn("recorz dnu: nope: argc=1", output)
         self.assertIn("123\n", output)
+        self.assertNotIn("primitive failed", output)
+        self.assertNotIn("unsupported send", output)
+        self.assertIn("recorz vm done", output)
+
+    def test_qemu_memory_primitives_10_11(self) -> None:
+        if shutil.which("qemu-system-riscv64") is None:
+            self.skipTest("qemu-system-riscv64 not installed")
+        if shutil.which("riscv64-unknown-elf-gcc") is None:
+            self.skipTest("riscv64-unknown-elf-gcc not installed")
+
+        subprocess.run(
+            ["make", "all", "PROGRAM_SRC=programs/memory.rcz"],
+            cwd=REPO_ROOT / "vm",
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+        cmd = [
+            "qemu-system-riscv64",
+            "-machine",
+            "virt",
+            "-nographic",
+            "-bios",
+            "none",
+            "-kernel",
+            str(REPO_ROOT / "vm" / "build" / "recorz.elf"),
+            "-serial",
+            "stdio",
+            "-monitor",
+            "none",
+        ]
+
+        output = ""
+        try:
+            result = subprocess.run(
+                cmd,
+                cwd=REPO_ROOT,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=8.0,
+            )
+            output = (result.stdout or "") + (result.stderr or "")
+        except subprocess.TimeoutExpired as exc:
+            output = _as_text(exc.stdout) + _as_text(exc.stderr)
+
+        self.assertIn("recorz vm boot ok", output)
+        self.assertIn("recorz primitives ready", output)
+        self.assertIn("recorz interpreter loop", output)
+        self.assertIn("123\n", output)
+        self.assertIn("42\n", output)
+        self.assertNotIn("recorz dnu:", output)
+        self.assertNotIn("primitive failed", output)
+        self.assertNotIn("unsupported send", output)
+        self.assertIn("recorz vm done", output)
+
+    def test_qemu_protocol_core_matrix(self) -> None:
+        if shutil.which("qemu-system-riscv64") is None:
+            self.skipTest("qemu-system-riscv64 not installed")
+        if shutil.which("riscv64-unknown-elf-gcc") is None:
+            self.skipTest("riscv64-unknown-elf-gcc not installed")
+
+        subprocess.run(
+            ["make", "all", "PROGRAM_SRC=programs/protocol_core.rcz"],
+            cwd=REPO_ROOT / "vm",
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+        cmd = [
+            "qemu-system-riscv64",
+            "-machine",
+            "virt",
+            "-nographic",
+            "-bios",
+            "none",
+            "-kernel",
+            str(REPO_ROOT / "vm" / "build" / "recorz.elf"),
+            "-serial",
+            "stdio",
+            "-monitor",
+            "none",
+        ]
+
+        output = ""
+        try:
+            result = subprocess.run(
+                cmd,
+                cwd=REPO_ROOT,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=8.0,
+            )
+            output = (result.stdout or "") + (result.stderr or "")
+        except subprocess.TimeoutExpired as exc:
+            output = _as_text(exc.stdout) + _as_text(exc.stderr)
+
+        self.assertIn("recorz vm boot ok", output)
+        self.assertIn("recorz primitives ready", output)
+        self.assertIn("recorz interpreter loop", output)
+        self.assertIn("3\n", output)
+        self.assertIn("9\n", output)
+        self.assertIn("13\n", output)
+        self.assertIn("20\n", output)
+        self.assertIn("99\n", output)
+        self.assertIn("7\n", output)
+        self.assertIn("10\n", output)
+        self.assertNotIn("recorz dnu:", output)
         self.assertNotIn("primitive failed", output)
         self.assertNotIn("unsupported send", output)
         self.assertIn("recorz vm done", output)

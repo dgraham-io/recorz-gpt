@@ -10,6 +10,8 @@
 .equ VM_IMAGE_BUFFER_BYTES, 131072
 .equ VM_SYMBOL_STORAGE_BYTES, 8192
 .equ VM_BLOCK_STORAGE_BYTES, 32768
+.equ VM_DEVICE_MEM_BYTES, 4096
+.equ VM_DEVICE_MEM_BASE, 0x20000000
 .equ IMAGE_MIN_BYTES, 8640
 
 .equ BC_OP_HALT, 0
@@ -38,6 +40,7 @@
 .equ PRIM_SUB_INT, 12
 .equ PRIM_MUL_INT, 13
 .equ PRIM_DIV_INT, 14
+.equ PRIM_SQRT_INT, 15
 .equ PRIM_CLONE_OBJECT, 20
 .equ PRIM_SLOT_NAME, 24
 .equ PRIM_SLOT_VALUE, 25
@@ -455,8 +458,19 @@ op_send_unary_fallback:
   ld a0, -8(s4)           # receiver value
   mv a1, s10              # selector index
   li a2, 0                # argc
+  li a3, 0                # args ptr
+  call vm_try_slot_accessor
+  beqz a0, op_send_unary_slot_accessor
+
+  ld a0, -8(s4)           # receiver value
+  mv a1, s10              # selector index
+  li a2, 0                # argc
   call vm_invoke_does_not_understand
   bnez a0, vm_primitive_failed
+  sd a1, -8(s4)
+  j op_advance
+
+op_send_unary_slot_accessor:
   sd a1, -8(s4)
   j op_advance
 
@@ -517,8 +531,21 @@ op_send_binary_fallback:
   ld a0, -16(s4)          # receiver value
   mv a1, s10              # selector index
   li a2, 1                # argc
+  addi a3, s4, -8         # args ptr
+  call vm_try_slot_accessor
+  beqz a0, op_send_binary_slot_accessor
+
+  ld a0, -16(s4)          # receiver value
+  mv a1, s10              # selector index
+  li a2, 1                # argc
   call vm_invoke_does_not_understand
   bnez a0, vm_primitive_failed
+  addi s4, s4, -16
+  sd a1, 0(s4)
+  addi s4, s4, 8
+  j op_advance
+
+op_send_binary_slot_accessor:
   addi s4, s4, -16
   sd a1, 0(s4)
   addi s4, s4, 8
@@ -1756,6 +1783,152 @@ vm_invoke_does_not_understand_literal_done:
   addi sp, sp, 48
   ret
 
+# a0=receiver value, a1=selector index, a2=argc, a3=args ptr
+# -> a0=status (0 handled / -1 not handled), a1=result (when handled)
+vm_try_slot_accessor:
+  addi sp, sp, -56
+  sd ra, 48(sp)
+  sd a0, 40(sp)           # receiver
+  sd a1, 32(sp)           # selector index
+  sd a2, 24(sp)           # argc
+  sd a3, 16(sp)           # args ptr
+
+  ld a0, 32(sp)           # selector index
+  call vm_get_selector_by_index
+  bltz a2, vm_try_slot_accessor_not_handled
+
+  mv t0, a0               # selector bytes ptr
+  mv t1, a1               # selector len
+  ld a0, 40(sp)           # receiver
+  mv a1, t0               # selector bytes ptr
+  mv a2, t1               # selector len
+  ld a3, 24(sp)           # argc
+  ld a4, 16(sp)           # args ptr
+  call vm_try_slot_accessor_literal
+  j vm_try_slot_accessor_done
+
+vm_try_slot_accessor_not_handled:
+  li a0, -1
+  li a1, 0
+
+vm_try_slot_accessor_done:
+  ld ra, 48(sp)
+  addi sp, sp, 56
+  ret
+
+# a0=receiver value, a1=selector bytes ptr, a2=selector len, a3=argc, a4=args ptr
+# -> a0=status (0 handled / -1 not handled), a1=result (when handled)
+vm_try_slot_accessor_literal:
+  addi sp, sp, -96
+  sd ra, 88(sp)
+  sd s0, 80(sp)
+  sd s1, 72(sp)
+  sd s2, 64(sp)
+  sd s3, 56(sp)
+  sd s4, 48(sp)
+  sd a4, 40(sp)           # args ptr
+
+  mv s0, a0               # receiver
+  mv s1, a1               # selector bytes ptr
+  mv s2, a2               # selector len
+  mv s3, a3               # argc
+
+  beqz s0, vm_try_slot_accessor_literal_not_handled
+  andi t0, s0, 1
+  bnez t0, vm_try_slot_accessor_literal_not_handled
+
+  beqz s3, vm_try_slot_accessor_literal_getter
+  li t0, 1
+  beq s3, t0, vm_try_slot_accessor_literal_setter
+  j vm_try_slot_accessor_literal_not_handled
+
+vm_try_slot_accessor_literal_getter:
+  mv a0, s1
+  mv a1, s2
+  call vm_intern_symbol
+  bnez a0, vm_try_slot_accessor_literal_not_handled
+  mv t0, a1               # selector symbol object
+
+  li a0, PRIM_SLOT_NAMED
+  mv a1, s0               # receiver
+  mv a2, t0               # selector symbol
+  li a3, 0
+  call primitive_dispatch
+  bnez a0, vm_try_slot_accessor_literal_not_handled
+  li a0, 0
+  j vm_try_slot_accessor_literal_done
+
+vm_try_slot_accessor_literal_setter:
+  li t0, 2
+  bltu s2, t0, vm_try_slot_accessor_literal_not_handled
+
+  add t1, s1, s2
+  addi t1, t1, -1
+  lbu t2, 0(t1)
+  li t3, ':'
+  bne t2, t3, vm_try_slot_accessor_literal_not_handled
+
+  addi s4, s2, -1         # base selector length
+  beqz s4, vm_try_slot_accessor_literal_not_handled
+
+  mv t4, s1
+  li t5, 0
+vm_try_slot_accessor_literal_setter_scan:
+  bgeu t5, s4, vm_try_slot_accessor_literal_setter_scan_done
+  lbu t6, 0(t4)
+  li t0, ':'
+  beq t6, t0, vm_try_slot_accessor_literal_not_handled
+  addi t4, t4, 1
+  addi t5, t5, 1
+  j vm_try_slot_accessor_literal_setter_scan
+vm_try_slot_accessor_literal_setter_scan_done:
+
+  mv a0, s1
+  mv a1, s4
+  call vm_intern_symbol
+  bnez a0, vm_try_slot_accessor_literal_not_handled
+  mv t0, a1               # base selector symbol object
+  sd t0, 32(sp)
+
+  ld t1, 40(sp)           # args ptr
+  beqz t1, vm_try_slot_accessor_literal_not_handled
+  ld t2, 0(t1)            # arg0 value
+  sd t2, 24(sp)
+
+  # Setter fallback only applies when the slot already exists.
+  li a0, PRIM_SLOT_NAMED
+  mv a1, s0               # receiver object
+  mv a2, t0               # base selector symbol
+  li a3, 0
+  call primitive_dispatch
+  bnez a0, vm_try_slot_accessor_literal_not_handled
+
+  ld t0, 32(sp)           # base selector symbol object
+  ld t2, 24(sp)           # arg0 value
+  li a0, PRIM_ADD_SLOT
+  mv a1, s0               # receiver object
+  mv a2, t0               # base selector symbol
+  mv a3, t2               # new slot value
+  call primitive_dispatch
+  bnez a0, vm_try_slot_accessor_literal_not_handled
+  mv a1, t2               # setter result is assigned value
+  li a0, 0
+  j vm_try_slot_accessor_literal_done
+
+vm_try_slot_accessor_literal_not_handled:
+  li a0, -1
+  li a1, 0
+
+vm_try_slot_accessor_literal_done:
+  ld s4, 48(sp)
+  ld s3, 56(sp)
+  ld s2, 64(sp)
+  ld s1, 72(sp)
+  ld s0, 80(sp)
+  ld ra, 88(sp)
+  addi sp, sp, 96
+  ret
+
 # a1=receiver value -> a0=status, a1=result
 vm_invoke_primitive_failed:
   addi sp, sp, -16
@@ -1945,7 +2118,7 @@ primitive_debug_break:
 # Expects a1 = tagged integer receiver.
 primitive_print_int:
   andi t0, a1, 1
-  beqz t0, primitive_bad_type
+  beqz t0, primitive_mem_byte_at
 
   addi sp, sp, -16
   sd ra, 8(sp)
@@ -1965,7 +2138,7 @@ primitive_print_int:
 # Expects a1=tagged lhs, a2=tagged rhs.
 primitive_add_int:
   andi t0, a1, 1
-  beqz t0, primitive_bad_type
+  beqz t0, primitive_mem_byte_at_put
   andi t0, a2, 1
   beqz t0, primitive_bad_type
   srai t1, a1, 1
@@ -2015,6 +2188,75 @@ primitive_div_int:
   beqz t2, primitive_div_int_zero
   div t3, t1, t2
   slli a1, t3, 1
+  ori a1, a1, 1
+  li a0, 0
+  ret
+
+# Expects object receiver (a1), tagged address arg (a2). Address is in VM_DEVICE_MEM_BASE..+VM_DEVICE_MEM_BYTES.
+primitive_mem_byte_at:
+  beqz a1, primitive_bad_type
+  andi t0, a1, 1
+  bnez t0, primitive_bad_type
+  andi t0, a2, 1
+  beqz t0, primitive_bad_type
+  srai t1, a2, 1
+  li t2, VM_DEVICE_MEM_BASE
+  blt t1, t2, primitive_bad_index
+  li t3, VM_DEVICE_MEM_BASE + VM_DEVICE_MEM_BYTES
+  bge t1, t3, primitive_bad_index
+  sub t1, t1, t2
+  la t4, vm_device_mem
+  add t4, t4, t1
+  lbu t5, 0(t4)
+  slli a1, t5, 1
+  ori a1, a1, 1
+  li a0, 0
+  ret
+
+# Expects object receiver (a1), tagged address arg (a2), tagged byte value arg (a3).
+primitive_mem_byte_at_put:
+  beqz a1, primitive_bad_type
+  andi t0, a1, 1
+  bnez t0, primitive_bad_type
+  andi t0, a2, 1
+  beqz t0, primitive_bad_type
+  andi t0, a3, 1
+  beqz t0, primitive_bad_type
+  srai t1, a2, 1
+  li t2, VM_DEVICE_MEM_BASE
+  blt t1, t2, primitive_bad_index
+  li t3, VM_DEVICE_MEM_BASE + VM_DEVICE_MEM_BYTES
+  bge t1, t3, primitive_bad_index
+  srai t4, a3, 1
+  bltz t4, primitive_bad_type
+  li t5, 255
+  bgt t4, t5, primitive_bad_type
+  sub t1, t1, t2
+  la t6, vm_device_mem
+  add t6, t6, t1
+  sb t4, 0(t6)
+  mv a1, a3
+  li a0, 0
+  ret
+
+# Expects a1=tagged integer receiver.
+primitive_sqrt_int:
+  andi t0, a1, 1
+  beqz t0, primitive_bad_type
+
+  srai t1, a1, 1          # integer value
+  bltz t1, primitive_bad_type
+
+  li t2, 0                # result
+  li t3, 1                # odd increment
+primitive_sqrt_int_loop:
+  bltu t1, t3, primitive_sqrt_int_done
+  sub t1, t1, t3
+  addi t3, t3, 2
+  addi t2, t2, 1
+  j primitive_sqrt_int_loop
+primitive_sqrt_int_done:
+  slli a1, t2, 1
   ori a1, a1, 1
   li a0, 0
   ret
@@ -3474,9 +3716,29 @@ vm_eval_block_send_unary_fallback:
   call vm_block_selector_by_index
   bnez a0, vm_eval_block_fail_send
   ld a0, -8(s11)          # receiver value
+  # a1/a2 already hold selector bytes ptr/len
+  li a3, 0                # argc
+  li a4, 0                # args ptr
+  addi sp, sp, -16
+  sd t3, 8(sp)            # preserve selector index across helper call
+  call vm_try_slot_accessor_literal
+  ld t3, 8(sp)
+  addi sp, sp, 16
+  beqz a0, vm_eval_block_send_unary_slot_accessor
+  mv a0, s9               # selectors base ptr
+  ld a1, 8(sp)            # selector count
+  mv a2, t3               # selector index
+  call vm_block_selector_by_index
+  bnez a0, vm_eval_block_fail_send
+  ld a0, -8(s11)          # receiver value
+  # a1/a2 already hold selector bytes ptr/len
   li a3, 0                # argc
   call vm_invoke_does_not_understand_literal
   bnez a0, vm_eval_block_fail_send
+  sd a1, -8(s11)
+  j vm_eval_block_advance
+
+vm_eval_block_send_unary_slot_accessor:
   sd a1, -8(s11)
   j vm_eval_block_advance
 
@@ -3534,9 +3796,31 @@ vm_eval_block_send_binary_fallback:
   call vm_block_selector_by_index
   bnez a0, vm_eval_block_fail_send
   ld a0, -16(s11)         # receiver value
+  # a1/a2 already hold selector bytes ptr/len
+  li a3, 1                # argc
+  addi a4, s11, -8        # args ptr
+  addi sp, sp, -16
+  sd t3, 8(sp)            # preserve selector index across helper call
+  call vm_try_slot_accessor_literal
+  ld t3, 8(sp)
+  addi sp, sp, 16
+  beqz a0, vm_eval_block_send_binary_slot_accessor
+  mv a0, s9               # selectors base ptr
+  ld a1, 8(sp)            # selector count
+  mv a2, t3               # selector index
+  call vm_block_selector_by_index
+  bnez a0, vm_eval_block_fail_send
+  ld a0, -16(s11)         # receiver value
+  # a1/a2 already hold selector bytes ptr/len
   li a3, 1                # argc
   call vm_invoke_does_not_understand_literal
   bnez a0, vm_eval_block_fail_send
+  addi s11, s11, -16
+  sd a1, 0(s11)
+  addi s11, s11, 8
+  j vm_eval_block_advance
+
+vm_eval_block_send_binary_slot_accessor:
   addi s11, s11, -16
   sd a1, 0(s11)
   addi s11, s11, 8
@@ -4762,7 +5046,7 @@ proto_byte_array:
 .align 3
 proto_integer:
   .dword proto_object
-  .dword 5
+  .dword 6
   .dword proto_integer_slots
 
 .align 3
@@ -4786,6 +5070,10 @@ proto_integer_slots:
   .dword selector_name_div
   .dword 1
   .dword PRIM_DIV_INT
+
+  .dword selector_name_sqrt
+  .dword 4
+  .dword PRIM_SQRT_INT
 
 .align 3
 proto_object_slots:
@@ -4927,6 +5215,8 @@ selector_name_mul:
   .ascii "*"
 selector_name_div:
   .ascii "/"
+selector_name_sqrt:
+  .ascii "sqrt"
 selector_name_clone:
   .ascii "clone"
 selector_name_add_method_do:
@@ -4981,7 +5271,8 @@ primitive_table:
   .dword primitive_sub_int
   .dword primitive_mul_int
   .dword primitive_div_int
-  .rept 5
+  .dword primitive_sqrt_int
+  .rept 4
   .dword primitive_unimplemented
   .endr
   .dword primitive_clone_object
@@ -5121,6 +5412,10 @@ vm_heap_ptr:
 vm_heap:
   .space 65536
 vm_heap_end:
+
+.align 3
+vm_device_mem:
+  .space VM_DEVICE_MEM_BYTES
 
 .align 3
 intbuf:

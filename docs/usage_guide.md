@@ -61,6 +61,13 @@ make -C vm all PROGRAM_SRC=programs/dnu.rcz
 scripts/run_qemu_vm.sh vm/build/recorz.elf
 ```
 
+Selector-coverage gate program:
+
+```bash
+make -C vm all PROGRAM_SRC=programs/protocol_core.rcz
+scripts/run_qemu_vm.sh vm/build/recorz.elf
+```
+
 You can also compile a doc/sample source directly:
 
 ```bash
